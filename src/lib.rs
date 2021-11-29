@@ -1,4 +1,54 @@
-//! TODO: write some docs before publishing
+//! Opinionated framework for running network servers.
+//!
+//! This crate builds on top of libraries like [`tower`], [`hyper`], [`axum`], and [`tonic`], and
+//! provides an opinionated way to run services built with those libraries.
+//!
+//! This is how we run all our Rust network services at [Embark Studios].
+//!
+//! [Embark Studios]: https://www.embark-studios.com
+//!
+//! # Example
+//!
+//! ```rust
+//! use server_framework::{Server, Config};
+//! use axum::{Router, routing::get};
+//!
+//! // parse config from command line arguments
+//! let config = Config::from_args();
+//!
+//! // build our application with a few routes
+//! let routes = Router::new()
+//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .route("/foo", get(|| async { "Hi from `GET /foo`" }));
+//!
+//! # async {
+//! // run our server
+//! Server::new(config)
+//!     .with(routes)
+//!     .serve()
+//!     .await
+//!     .unwrap();
+//! # };
+//! ```
+//!
+//! # Middleware
+//!
+//! At its core `server-framework` is a collection of `tower` middleware that extends your app with
+//! Embark's conventions and best practices.
+//!
+//! The middleware stack includes:
+//!
+//! - Timeouts
+//! - Setting and propagating request id headers
+//! - Metrics recording
+//!
+//! # Features
+//!
+//! `server-framework` includes the following optional features:
+//!
+//! | Name | Description | Default |
+//! |---|---|---|
+//! | `tonic` | Enables support for running tonic services | Yes |
 
 // BEGIN - Embark standard lints v5 for Rust 1.55+
 // do not change or add/remove here, but one can add exceptions after this section
@@ -97,6 +147,7 @@ use axum::{
     AddExtensionLayer, BoxError, Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
+use clap::Parser;
 use http::{header::HeaderName, Method, Request, Response, StatusCode, Uri};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
@@ -108,14 +159,15 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tower::{timeout::Timeout, ServiceBuilder};
+use tower::{timeout::Timeout, Service, ServiceBuilder};
 use tower_http::{request_id::RequestId, ServiceBuilderExt};
 use uuid::Uuid;
 
 pub use axum;
-pub use clap::Parser;
 pub use http;
-pub use tower::{Layer, Service};
+#[cfg(feature = "tonic")]
+pub use tonic;
+pub use tower;
 
 mod metrics;
 
@@ -124,33 +176,84 @@ mod metrics;
 /// Supports being parsed from command line arguments (via clap):
 ///
 /// ```rust
-/// use server_framework::{Config, Parser};
+/// use server_framework::Config;
 ///
-/// let config = Config::parse();
+/// let config = Config::from_args();
+/// ```
+///
+/// You can use `#[clap(flatten)]` to combine this with your apps remaining configuration:
+///
+/// ```rust
+/// use server_framework::{Config, Server};
+/// use clap::Parser;
+///
+/// #[derive(clap::Parser)]
+/// struct MyAppConfig {
+///     #[clap(flatten)]
+///     server_config: Config,
+/// }
+///
+/// let config = MyAppConfig::parse();
+///
+/// # async {
+/// Server::new(config.server_config)
+///     .serve()
+///     .await
+///     .unwrap();
+/// # };
 /// ```
 #[derive(Debug, Clone, clap::Parser)]
+#[non_exhaustive]
 pub struct Config {
+    /// The socket address the server will bind to.
+    ///
+    /// Defaults to `0.0.0.0:3000`.
+    ///
+    /// Can also be set through the `ESF_BIND_ADDRESS` environment variable.
     #[clap(env = "ESF_BIND_ADDRESS", long, default_value = "0.0.0.0:3000")]
-    bind_address: SocketAddr,
+    pub bind_address: SocketAddr,
 
+    /// The port the metrics and health server will bind to.
+    ///
+    /// Defaults to `8081`.
+    ///
+    /// Can also be set through the `ESF_METRICS_HEALTH_PORT` environment variable.
     #[clap(env = "ESF_METRICS_HEALTH_PORT", long, default_value = "8081")]
-    metrics_health_port: u16,
+    pub metrics_health_port: u16,
 
+    /// Whether or not to only accept http2 traffic.
+    ///
+    /// Defaults to `false`.
+    ///
+    /// Can also be set through the `ESF_HTTP2_ONLY` environment variable.
     #[clap(env = "ESF_HTTP2_ONLY", long)]
-    http2_only: bool,
+    pub http2_only: bool,
 
+    /// The request timeout in seconds.
+    ///
+    /// Defaults to 30.
+    ///
+    /// Can also be set through the `ESF_TIMEOUT` environment variable.
     #[clap(env = "ESF_TIMEOUT", long, default_value = "30")]
-    timeout_sec: u64,
+    pub timeout_sec: u64,
 
-    #[clap(
-        env = "ESF_REQUEST_ID_HEADER",
-        long,
-        default_value = "x-esf-request-id"
-    )]
-    request_id_header: String,
+    /// The rqeuest id headers.
+    ///
+    /// Defaults to `x-request-id`.
+    ///
+    /// Can also be set through the `ESF_REQUEST_ID_HEADER` environment variable.
+    #[clap(env = "ESF_REQUEST_ID_HEADER", long, default_value = "x-request-id")]
+    pub request_id_header: String,
 }
 
-/// A default batteries included HTTP server.
+impl Config {
+    /// Get the config from command line arguments.
+    pub fn from_args() -> Self {
+        Self::parse()
+    }
+}
+
+/// A batteries included HTTP server.
 pub struct Server<F> {
     config: Config,
     router: Router<BoxBody>,
@@ -341,7 +444,7 @@ impl<F> Server<F> {
     /// # };
     /// ```
     #[cfg(feature = "tonic")]
-    pub fn with_tonic<S, B>(self, svc: S) -> Self
+    pub fn with_tonic<S, B>(self, service: S) -> Self
     where
         S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
             + tonic::transport::NamedService
@@ -352,12 +455,7 @@ impl<F> Server<F> {
         B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
         B::Error: Into<axum::BoxError>,
     {
-        let svc = ServiceBuilder::new()
-            .map_err(|err: tonic::codegen::Never| match err {})
-            .map_response_body(body::boxed)
-            .service(svc);
-        let route = Router::new().route(&format!("/{}", S::NAME), svc);
-        self.with(route)
+        self.with(router_from_tonic(service))
     }
 
     /// Add a fallback service.
@@ -492,15 +590,15 @@ impl<F> Server<F> {
     {
         tracing::debug!("server listening on {}", self.config.bind_address);
 
-        tokio::spawn(expose_metrics_and_health(self.config.clone()));
-
         let Config {
             bind_address,
             http2_only,
             timeout_sec,
             request_id_header,
-            metrics_health_port: _,
+            metrics_health_port,
         } = self.config;
+
+        tokio::spawn(expose_metrics_and_health(metrics_health_port));
 
         let request_id_header = HeaderName::from_bytes(request_id_header.as_bytes())
             .with_context(|| format!("Invalid request id: {:?}", request_id_header))?;
@@ -539,7 +637,7 @@ impl<F> Server<F> {
 type FallibleService = Timeout<Route<BoxBody>>;
 
 /// Run a second HTTP server that exposes metrics (and soon) health checks.
-async fn expose_metrics_and_health(config: Config) {
+async fn expose_metrics_and_health(metrics_health_port: u16) {
     let recorder = PrometheusBuilder::new()
         .set_buckets_for_metric(
             Matcher::Full("http_requests_duration_seconds".to_string()),
@@ -563,7 +661,9 @@ async fn expose_metrics_and_health(config: Config) {
             )
             .layer(ServiceBuilder::new().layer(AddExtensionLayer::new(recorder_handle)));
 
-    let bind_address = SocketAddr::from(([0, 0, 0, 0], config.metrics_health_port));
+    let bind_address = SocketAddr::from(([0, 0, 0, 0], metrics_health_port));
+
+    tracing::debug!("metrics and health server listening on {}", bind_address);
 
     hyper::Server::bind(&bind_address)
         .serve(router.into_make_service())
@@ -576,7 +676,8 @@ async fn ctrl_c() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-/// The default error handling type used by [`Server`].
+/// PRIVATE API: The default error handling type used by [`Server`].
+#[doc(hidden)]
 pub type DefaultErrorHandler =
     fn(Method, Uri, Extension<RequestId>, BoxError) -> std::future::Ready<(StatusCode, String)>;
 
@@ -652,4 +753,26 @@ impl tower_http::request_id::MakeRequestId for MakeRequestUuid {
         let request_id = Uuid::new_v4().to_string().parse().unwrap();
         Some(RequestId::new(request_id))
     }
+}
+
+/// Convert a [`tonic`] service into a [`Router`].
+///
+/// This can be useful for composing a number of services and adding middleware to them.
+#[cfg(feature = "tonic")]
+pub fn router_from_tonic<S, B>(service: S) -> Router<BoxBody>
+where
+    S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
+        + tonic::transport::NamedService
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send,
+    B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
+    B::Error: Into<axum::BoxError>,
+{
+    let svc = ServiceBuilder::new()
+        .map_err(|err: tonic::codegen::Never| match err {})
+        .map_response_body(body::boxed)
+        .service(service);
+    Router::new().route(&format!("/{}", S::NAME), svc)
 }

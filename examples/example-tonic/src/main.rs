@@ -1,6 +1,6 @@
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
-use server_framework::{Config, Parser as _, Server};
+use server_framework::{Config, Server};
 
 mod hello_world {
     tonic::include_proto!("helloworld");
@@ -10,7 +10,7 @@ mod hello_world {
 async fn main() {
     init_tracing();
 
-    let config = Config::parse();
+    let config = Config::from_args();
     tracing::debug!(?config);
 
     let service = GreeterServer::new(MyGreeter);

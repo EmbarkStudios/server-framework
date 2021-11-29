@@ -1,13 +1,13 @@
 use server_framework::{
     axum::{response::IntoResponse, routing::get, Router},
-    Config, Parser as _, Server,
+    Config, Server,
 };
 
 #[tokio::main]
 async fn main() {
     init_tracing();
 
-    let config = Config::parse();
+    let config = Config::from_args();
     tracing::debug!(?config);
 
     let routes = Router::new().route("/", get(root));
