@@ -10,8 +10,10 @@ async fn main() {
     let config = Config::parse();
     tracing::debug!(?config);
 
+    let routes = Router::new().route("/", get(root));
+
     Server::new(config)
-        .with(Router::new().route("/", get(root)))
+        .with(routes)
         .serve()
         .await
         .expect("server failed to start");

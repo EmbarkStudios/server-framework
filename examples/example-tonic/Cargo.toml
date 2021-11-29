@@ -1,0 +1,16 @@
+[package]
+name = "example-tonic"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+prost = "0.9"
+server-framework = { path = "../../" }
+tokio = { version = "1.14", features = ["full"] }
+tonic = "0.6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+tonic-build = "0.6"

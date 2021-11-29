@@ -12,6 +12,9 @@ description = "Opinionated framework for running network servers"
 categories = ["asynchronous", "network-programming", "web-programming"]
 keywords = ["http", "web", "framework", "service"]
 
+[features]
+default = ["tonic"]
+
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.3" }
@@ -22,6 +25,9 @@ http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
 tower = { version = "0.4", features = ["util"] }
 tracing = "0.1"
+
+# optional dependencies
+tonic = { optional = true, version = "0.6", default_features = false }
 
 [dependencies.tower-http]
 version = "0.1"

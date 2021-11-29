@@ -91,9 +91,11 @@
 #![forbid(unsafe_code)]
 
 use axum::{
-    body::{self, BoxBody, HttpBody},
-    Router,
+    body::{self, BoxBody, Bytes, HttpBody},
+    BoxError, Router,
 };
+use axum_extra::routing::{HasRoutes, RouterExt};
+use http::{Request, Response};
 use std::{
     net::SocketAddr,
     pin::Pin,
@@ -116,7 +118,6 @@ pub struct Config {
     http2_only: bool,
 }
 
-// TODO(david): tonic example, to make sure all our use cases work from the start
 // TODO(david): metrics middleware
 // TODO(david): internal metrics service
 
@@ -133,9 +134,32 @@ impl Server {
         }
     }
 
-    pub fn with(mut self, router: Router<BoxBody>) -> Self {
-        self.router = self.router.merge(router);
+    pub fn with<T>(mut self, router: T) -> Self
+    where
+        T: HasRoutes<BoxBody>,
+    {
+        self.router = self.router.with(router);
         self
+    }
+
+    #[cfg(feature = "tonic")]
+    pub fn with_tonic<S, B>(self, svc: S) -> Self
+    where
+        S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
+            + tonic::transport::NamedService
+            + Clone
+            + Send
+            + 'static,
+        S::Future: Send,
+        B: http_body::Body<Data = Bytes> + Send + 'static,
+        B::Error: Into<BoxError>,
+    {
+        let svc = ServiceBuilder::new()
+            .map_err(|err: tonic::codegen::Never| match err {})
+            .map_response_body(body::boxed)
+            .service(svc);
+        let route = Router::new().route(&format!("/{}", S::NAME), svc);
+        self.with(route)
     }
 
     pub async fn serve(self) -> anyhow::Result<()> {
