@@ -1,3 +1,5 @@
+//! TODO: write some docs before publishing
+
 // BEGIN - Embark standard lints v5 for Rust 1.55+
 // do not change or add/remove here, but one can add exceptions after this section
 // for more info see: <https://github.com/EmbarkStudios/rust-ecosystem/issues/59>
@@ -81,21 +83,20 @@
 // crate-specific exceptions:
 #![allow(elided_lifetimes_in_paths, clippy::type_complexity)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![deny(
-    unreachable_pub,
-    private_in_public,
-    // TODO(david): enable these before publishing
-    // missing_debug_implementations,
-    // missing_docs,
-)]
+#![warn(missing_debug_implementations, missing_docs)]
+#![deny(unreachable_pub, private_in_public)]
 #![forbid(unsafe_code)]
 
+use self::metrics::RecordMetrics;
 use axum::{
     body::{self, BoxBody, HttpBody},
-    Router,
+    extract::Extension,
+    routing::get,
+    AddExtensionLayer, Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
 use http::{Request, Response};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
     convert::Infallible,
     net::SocketAddr,
@@ -110,24 +111,47 @@ pub use clap::Parser;
 pub use http;
 pub use tower::{Layer, Service};
 
-#[derive(Debug, clap::Parser)]
+mod metrics;
+
+/// Server configuration.
+///
+/// Supports being parsed from command line arguments (via clap):
+///
+/// ```rust
+/// use server_framework::{Config, Parser};
+///
+/// let config = Config::parse();
+/// ```
+#[derive(Debug, Clone, clap::Parser)]
 pub struct Config {
     #[clap(env = "ESF_BIND_ADDRESS", long, default_value = "0.0.0.0:3000")]
     bind_address: SocketAddr,
+
+    #[clap(env = "ESF_METRICS_HEALTH_PORT", long, default_value = "8081")]
+    metrics_health_port: u16,
 
     #[clap(env = "ESF_HTTP2_ONLY", long)]
     http2_only: bool,
 }
 
-// TODO(david): metrics middleware
-// TODO(david): internal metrics service
-
+/// A default batteries included HTTP server.
+#[derive(Debug, Clone)]
 pub struct Server {
     config: Config,
     router: Router<BoxBody>,
 }
 
+impl Default for Server {
+    fn default() -> Self {
+        Self {
+            config: Config::parse(),
+            router: Default::default(),
+        }
+    }
+}
+
 impl Server {
+    /// Create a new `Server` with the given config.
     pub fn new(config: Config) -> Self {
         Self {
             config,
@@ -135,6 +159,103 @@ impl Server {
         }
     }
 
+    /// Add routes to the server.
+    ///
+    /// This supports anything that implements [`HasRoutes`] such as [`Router`]:
+    ///
+    /// ```rust
+    /// use server_framework::Server;
+    /// use axum::{Router, routing::get};
+    ///
+    /// let routes = Router::new().route("/", get(|| async { "Hello, World!" }));
+    ///
+    /// # async {
+    /// Server::default()
+    ///     .with(routes)
+    ///     .serve()
+    ///     .await
+    ///     .unwrap();
+    /// # };
+    /// ```
+    ///
+    /// Or [`Resource`](axum_extra::routing::Resource):
+    ///
+    /// ```rust
+    /// use server_framework::Server;
+    /// use axum_extra::routing::Resource;
+    /// use axum::{
+    ///     Router,
+    ///     async_trait,
+    ///     extract::{Path, FromRequest, RequestParts},
+    ///     routing::get,
+    ///     body::BoxBody,
+    /// };
+    ///
+    /// struct Users {
+    ///     dependency: SomeDependency,
+    /// }
+    ///
+    /// impl Users {
+    ///     fn resource() -> Resource<BoxBody> {
+    ///         Resource::named("users")
+    ///             .index(Self::index)
+    ///             .create(Self::create)
+    ///             .show(Self::show)
+    ///     }
+    ///
+    ///     async fn index(self) {}
+    ///
+    ///     async fn create(self) {}
+    ///
+    ///     async fn show(self, Path(user_id): Path<u64>) {}
+    /// }
+    ///
+    /// #[async_trait]
+    /// impl<B> FromRequest<B> for Users
+    /// where
+    ///     B: Send + 'static
+    /// {
+    ///     // ...
+    ///     # type Rejection = std::convert::Infallible;
+    ///     # async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+    ///     #     todo!()
+    ///     # }
+    /// }
+    ///
+    /// struct SomeDependency;
+    ///
+    /// # async {
+    /// Server::default()
+    ///     .with(Users::resource())
+    ///     .serve()
+    ///     .await
+    ///     .unwrap();
+    /// # };
+    /// ```
+    ///
+    /// `with` can be called multiple times to add multiples sets of routes:
+    ///
+    /// ```rust
+    /// use server_framework::Server;
+    /// use axum::{Router, response::Json, routing::get};
+    /// use serde_json::json;
+    ///
+    /// let routes = Router::new().route("/", get(|| async { "Hello, World!" }));
+    ///
+    /// let api_routes = Router::new().route("/api", get(|| async {
+    ///     Json(json!({ "data": [1, 2, 3] }))
+    /// }));
+    ///
+    /// # async {
+    /// Server::default()
+    ///     .with(routes)
+    ///     .with(api_routes)
+    ///     // our server now accepts `GET /` and `GET /api`
+    ///     .serve()
+    ///     .await
+    ///     .unwrap();
+    /// # };
+    /// ```
     pub fn with<T>(mut self, router: T) -> Self
     where
         T: HasRoutes<BoxBody>,
@@ -143,6 +264,52 @@ impl Server {
         self
     }
 
+    /// Add a tonic service to the server.
+    ///
+    /// ```rust
+    /// use axum::async_trait;
+    /// use server_framework::Server;
+    /// #
+    /// # #[async_trait]
+    /// # trait Greeter {}
+    /// # #[derive(Clone)]
+    /// # struct GreeterServer<T>(T);
+    /// # impl<T> GreeterServer<T> {
+    /// #     fn new(t: T) -> Self { Self(t) }
+    /// # }
+    /// # impl<T> tonic::transport::NamedService for GreeterServer<T> {
+    /// #     const NAME: &'static str = "";
+    /// # }
+    /// # impl<T> tower::Service<http::Request<axum::body::BoxBody>> for GreeterServer<T> {
+    /// #     type Response = http::Response<axum::body::BoxBody>;
+    /// #     type Error = tonic::codegen::Never;
+    /// #     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+    /// #     fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    /// #         todo!()
+    /// #     }
+    /// #     fn call(&mut self, _: http::Request<axum::body::BoxBody>) -> Self::Future {
+    /// #         todo!()
+    /// #     }
+    /// # }
+    ///
+    /// #[derive(Clone)]
+    /// struct MyGreeter;
+    ///
+    /// #[async_trait]
+    /// impl Greeter for MyGreeter {
+    ///     // ...
+    /// }
+    ///
+    /// let service = GreeterServer::new(MyGreeter);
+    ///
+    /// # async {
+    /// Server::default()
+    ///     .with_tonic(service)
+    ///     .serve()
+    ///     .await
+    ///     .unwrap();
+    /// # };
+    /// ```
     #[cfg(feature = "tonic")]
     pub fn with_tonic<S, B>(self, svc: S) -> Self
     where
@@ -163,6 +330,31 @@ impl Server {
         self.with(route)
     }
 
+    /// Add a fallback service.
+    ///
+    /// This service will be called if no routes matches the incoming request.
+    ///
+    /// ```rust
+    /// use server_framework::Server;
+    /// use axum::{
+    ///     Router,
+    ///     response::IntoResponse,
+    ///     http::{StatusCode, Uri},
+    ///     handler::Handler,
+    /// };
+    ///
+    /// async fn fallback(uri: Uri) -> impl IntoResponse {
+    ///     (StatusCode::NOT_FOUND, format!("No route for {}", uri))
+    /// }
+    ///
+    /// # async {
+    /// Server::default()
+    ///     .fallback(fallback.into_service())
+    ///     .serve()
+    ///     .await
+    ///     .unwrap();
+    /// # };
+    /// ```
     pub fn fallback<S, B>(mut self, svc: S) -> Self
     where
         S: Service<Request<BoxBody>, Response = Response<B>, Error = Infallible>
@@ -180,12 +372,16 @@ impl Server {
         self
     }
 
+    /// Run the server.
     pub async fn serve(self) -> anyhow::Result<()> {
         tracing::debug!("server listening on {}", self.config.bind_address);
+
+        tokio::spawn(expose_metrics_and_health(self.config.clone()));
 
         let Config {
             bind_address,
             http2_only,
+            metrics_health_port: _,
         } = self.config;
 
         let make_svc = self
@@ -195,20 +391,59 @@ impl Server {
                     .map_request_body(|body| WrappedBody { body })
                     .map_request_body(body::boxed),
             )
+            .route_layer(ServiceBuilder::new().layer(RecordMetrics::layer()))
             .into_make_service_with_connect_info::<SocketAddr, _>();
 
         hyper::Server::bind(&bind_address)
             .http2_only(http2_only)
             .serve(make_svc)
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
+            .with_graceful_shutdown(ctrl_c())
             .await?;
 
         Ok(())
     }
 }
 
+async fn expose_metrics_and_health(config: Config) {
+    let recorder = PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            Matcher::Full("http_requests_duration_seconds".to_string()),
+            &[
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ],
+        )
+        .build();
+
+    let recorder_handle = recorder.handle();
+
+    ::metrics::set_boxed_recorder(Box::new(recorder)).expect("failed to set metrics recorder");
+
+    let router =
+        Router::new()
+            .route(
+                "/metrics",
+                get(|recorder_handle: Extension<PrometheusHandle>| async move {
+                    recorder_handle.render()
+                }),
+            )
+            .layer(ServiceBuilder::new().layer(AddExtensionLayer::new(recorder_handle)));
+
+    let bind_address = SocketAddr::from(([0, 0, 0, 0], config.metrics_health_port));
+
+    hyper::Server::bind(&bind_address)
+        .serve(router.into_make_service())
+        .with_graceful_shutdown(ctrl_c())
+        .await
+        .unwrap();
+}
+
+async fn ctrl_c() {
+    let _ = tokio::signal::ctrl_c().await;
+}
+
+// this type wont be present when we publish
+// using it here to ensure we support middleware that modify the request body type
+// which is something our internal version doesn't support well
 struct WrappedBody<B> {
     body: B,
 }

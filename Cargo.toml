@@ -23,9 +23,12 @@ clap = "3.0.0-beta.5"
 http = "0.2"
 http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
+metrics = "0.17"
+metrics-exporter-prometheus = "0.6"
+pin-project-lite = "0.2"
+tokio = { version = "1.14", features = ["rt-multi-thread", "signal"] }
 tower = { version = "0.4", features = ["util"] }
 tracing = "0.1"
-tokio = { version = "1.14", features = ["rt-multi-thread", "signal"] }
 
 # optional dependencies
 tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
@@ -38,6 +41,7 @@ features = [
 ]
 
 [dev-dependencies]
+serde_json = "1.0"
 
 [workspace]
 members = ["examples/*"]
