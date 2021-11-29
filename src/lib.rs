@@ -91,12 +91,13 @@
 #![forbid(unsafe_code)]
 
 use axum::{
-    body::{self, BoxBody, Bytes, HttpBody},
-    BoxError, Router,
+    body::{self, BoxBody, HttpBody},
+    Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
 use http::{Request, Response};
 use std::{
+    convert::Infallible,
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
@@ -151,8 +152,8 @@ impl Server {
             + Send
             + 'static,
         S::Future: Send,
-        B: http_body::Body<Data = Bytes> + Send + 'static,
-        B::Error: Into<BoxError>,
+        B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
+        B::Error: Into<axum::BoxError>,
     {
         let svc = ServiceBuilder::new()
             .map_err(|err: tonic::codegen::Never| match err {})
@@ -160,6 +161,23 @@ impl Server {
             .service(svc);
         let route = Router::new().route(&format!("/{}", S::NAME), svc);
         self.with(route)
+    }
+
+    pub fn fallback<S, B>(mut self, svc: S) -> Self
+    where
+        S: Service<Request<BoxBody>, Response = Response<B>, Error = Infallible>
+            + Clone
+            + Send
+            + 'static,
+        S::Future: Send + 'static,
+        B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
+        B::Error: Into<axum::BoxError>,
+    {
+        let svc = ServiceBuilder::new()
+            .map_response_body(body::boxed)
+            .service(svc);
+        self.router = self.router.fallback(svc);
+        self
     }
 
     pub async fn serve(self) -> anyhow::Result<()> {
@@ -182,6 +200,9 @@ impl Server {
         hyper::Server::bind(&bind_address)
             .http2_only(http2_only)
             .serve(make_svc)
+            .with_graceful_shutdown(async {
+                let _ = tokio::signal::ctrl_c().await;
+            })
             .await?;
 
         Ok(())

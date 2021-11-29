@@ -21,7 +21,7 @@ async fn main() {
 
 fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "example_axum=debug")
+        std::env::set_var("RUST_LOG", "example_axum=debug,server_framework=debug")
     }
     tracing_subscriber::fmt::init();
 }
