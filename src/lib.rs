@@ -90,19 +90,110 @@
 )]
 #![forbid(unsafe_code)]
 
+use axum::{
+    body::{self, BoxBody, HttpBody},
+    Router,
+};
+use std::{
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tower::ServiceBuilder;
+use tower_http::ServiceBuilderExt as _;
+
+pub use axum;
 pub use clap::Parser;
+pub use http;
+pub use tower::{Layer, Service};
 
 #[derive(Debug, clap::Parser)]
 pub struct Config {
-    
+    #[clap(env = "ESF_BIND_ADDRESS", long, default_value = "0.0.0.0:3000")]
+    bind_address: SocketAddr,
+
+    #[clap(env = "ESF_HTTP2_ONLY", long)]
+    http2_only: bool,
 }
+
+// TODO(david): tonic example, to make sure all our use cases work from the start
+// TODO(david): metrics middleware
+// TODO(david): internal metrics service
 
 pub struct Server {
     config: Config,
+    router: Router<BoxBody>,
 }
 
 impl Server {
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            router: Router::new(),
+        }
+    }
+
+    pub fn with(mut self, router: Router<BoxBody>) -> Self {
+        self.router = self.router.merge(router);
+        self
+    }
+
+    pub async fn serve(self) -> anyhow::Result<()> {
+        tracing::debug!("server listening on {}", self.config.bind_address);
+
+        let Config {
+            bind_address,
+            http2_only,
+        } = self.config;
+
+        let make_svc = self
+            .router
+            .layer(
+                ServiceBuilder::new()
+                    .map_request_body(|body| WrappedBody { body })
+                    .map_request_body(body::boxed),
+            )
+            .into_make_service_with_connect_info::<SocketAddr, _>();
+
+        hyper::Server::bind(&bind_address)
+            .http2_only(http2_only)
+            .serve(make_svc)
+            .await?;
+
+        Ok(())
+    }
+}
+
+struct WrappedBody<B> {
+    body: B,
+}
+
+impl<B> HttpBody for WrappedBody<B>
+where
+    B: HttpBody + Unpin,
+{
+    type Data = B::Data;
+    type Error = B::Error;
+
+    fn poll_data(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+        Pin::new(&mut self.body).poll_data(cx)
+    }
+
+    fn poll_trailers(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
+        Pin::new(&mut self.body).poll_trailers(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.body.size_hint()
     }
 }

@@ -1,4 +1,7 @@
-use server_framework::{Config, Server, Parser as _};
+use server_framework::{
+    axum::{response::IntoResponse, routing::get, Router},
+    Config, Parser as _, Server,
+};
 
 #[tokio::main]
 async fn main() {
@@ -6,7 +9,12 @@ async fn main() {
 
     let config = Config::parse();
     tracing::debug!(?config);
-    Server::new(config);
+
+    Server::new(config)
+        .with(Router::new().route("/", get(root)))
+        .serve()
+        .await
+        .expect("server failed to start");
 }
 
 fn init_tracing() {
@@ -14,4 +22,8 @@ fn init_tracing() {
         std::env::set_var("RUST_LOG", "example_axum=debug")
     }
     tracing_subscriber::fmt::init();
+}
+
+async fn root() -> impl IntoResponse {
+    "Hello, World!"
 }

@@ -13,19 +13,21 @@ categories = ["asynchronous", "network-programming", "web-programming"]
 keywords = ["http", "web", "framework", "service"]
 
 [dependencies]
-axum = { version = "0.3", features = ["http2"] }
+anyhow = "1.0"
+axum = { version = "0.3" }
+axum-extra = "0.1"
 clap = "3.0.0-beta.5"
-
-[dependencies.tower]
-version = "0.4"
-features = [
-    # ...
-]
+http = "0.2"
+http-body = "0.4"
+hyper = { version = "0.14", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tracing = "0.1"
 
 [dependencies.tower-http]
 version = "0.1"
 features = [
-    # ...
+    "map-request-body",
+    "util",
 ]
 
 [dev-dependencies]
@@ -37,4 +39,5 @@ members = ["examples/*"]
 # and remove these patches
 [patch.crates-io]
 axum = { git = "https://github.com/tokio-rs/axum.git" }
+axum-extra = { git = "https://github.com/tokio-rs/axum.git" }
 tower-http = { git = "https://github.com/tower-rs/tower-http.git" }
