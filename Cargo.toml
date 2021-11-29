@@ -27,8 +27,9 @@ metrics = "0.17"
 metrics-exporter-prometheus = "0.6"
 pin-project-lite = "0.2"
 tokio = { version = "1.14", features = ["rt-multi-thread", "signal"] }
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.4", features = ["util", "timeout"] }
 tracing = "0.1"
+uuid = { version = "0.8", features = ["v4"] }
 
 # optional dependencies
 tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
@@ -37,6 +38,7 @@ tonic = { optional = true, version = "0.6", default_features = false, features =
 version = "0.1"
 features = [
     "map-request-body",
+    "request-id",
     "util",
 ]
 
