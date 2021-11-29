@@ -13,5 +13,28 @@ categories = ["asynchronous", "network-programming", "web-programming"]
 keywords = ["http", "web", "framework", "service"]
 
 [dependencies]
+axum = { version = "0.3", features = ["http2"] }
+clap = "3.0.0-beta.5"
+
+[dependencies.tower]
+version = "0.4"
+features = [
+    # ...
+]
+
+[dependencies.tower-http]
+version = "0.1"
+features = [
+    # ...
+]
 
 [dev-dependencies]
+
+[workspace]
+members = ["examples/*"]
+
+# TODO: before publishing this crate, publish new version of axum and tower-http
+# and remove these patches
+[patch.crates-io]
+axum = { git = "https://github.com/tokio-rs/axum.git" }
+tower-http = { git = "https://github.com/tower-rs/tower-http.git" }

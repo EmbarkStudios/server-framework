@@ -89,3 +89,20 @@
     // missing_docs,
 )]
 #![forbid(unsafe_code)]
+
+pub use clap::Parser;
+
+#[derive(Debug, clap::Parser)]
+pub struct Config {
+    
+}
+
+pub struct Server {
+    config: Config,
+}
+
+impl Server {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+}
