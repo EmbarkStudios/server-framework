@@ -1,0 +1,17 @@
+[package]
+name = "server-framework"
+version = "0.1.0"
+edition = "2021"
+authors = ["Embark <opensource@embark-studios.com>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/server-framework"
+homepage = "https://github.com/EmbarkStudios/server-framework"
+repository = "https://github.com/EmbarkStudios/server-framework"
+description = "Opinionated framework for running network servers"
+categories = ["asynchronous", "network-programming", "web-programming"]
+keywords = ["http", "web", "framework", "service"]
+
+[dependencies]
+
+[dev-dependencies]
