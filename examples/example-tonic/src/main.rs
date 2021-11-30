@@ -11,7 +11,6 @@ async fn main() {
     init_tracing();
 
     let config = Config::from_args();
-    tracing::debug!(?config);
 
     let service = GreeterServer::new(MyGreeter);
 

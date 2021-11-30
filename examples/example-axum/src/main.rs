@@ -8,7 +8,6 @@ async fn main() {
     init_tracing();
 
     let config = Config::from_args();
-    tracing::debug!(?config);
 
     let routes = Router::new().route("/", get(root));
 
