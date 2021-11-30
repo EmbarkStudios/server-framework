@@ -663,7 +663,7 @@ async fn expose_metrics_and_health(metrics_health_port: u16) {
             )
             .layer(ServiceBuilder::new().layer(AddExtensionLayer::new(recorder_handle)));
 
-    let bind_address = SocketAddr::from(([0, 0, 0, 0], metrics_health_port));
+    let bind_address = SocketAddr::from((std::net::IpV4Addr::UNSPECIFIED, metrics_health_port));
 
     tracing::debug!("metrics and health server listening on {}", bind_address);
 
