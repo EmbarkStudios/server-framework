@@ -151,5 +151,8 @@ mod server;
 
 pub use self::{
     config::Config,
-    server::{router_from_tonic, Server},
+    server::Server,
 };
+
+#[cfg(feature = "tonic")]
+pub use self::server::router_from_tonic;
