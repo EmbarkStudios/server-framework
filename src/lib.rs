@@ -739,5 +739,5 @@ where
         .map_err(|err: tonic::codegen::Never| match err {})
         .map_response_body(body::boxed)
         .service(service);
-    Router::new().route(&format!("/{}", S::NAME), svc)
+    Router::new().route(&format!("/{}/*rest", S::NAME), svc)
 }
