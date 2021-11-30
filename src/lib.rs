@@ -205,10 +205,10 @@ mod metrics;
 pub struct Config {
     /// The socket address the server will bind to.
     ///
-    /// Defaults to `0.0.0.0:3000`.
+    /// Defaults to `0.0.0.0:8080`.
     ///
     /// Can also be set through the `ESF_BIND_ADDRESS` environment variable.
-    #[clap(env = "ESF_BIND_ADDRESS", long, default_value = "0.0.0.0:3000")]
+    #[clap(env = "ESF_BIND_ADDRESS", long, default_value = "0.0.0.0:8080")]
     pub bind_address: SocketAddr,
 
     /// The port the metrics and health server will bind to.
