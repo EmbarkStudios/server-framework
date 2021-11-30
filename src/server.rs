@@ -1,6 +1,6 @@
 use crate::{
     error_handling::{default_error_handler, DefaultErrorHandler},
-    metrics::RecordMetrics,
+    middleware::metrics::RecordMetrics,
     request_id::MakeRequestUuid,
     Config,
 };

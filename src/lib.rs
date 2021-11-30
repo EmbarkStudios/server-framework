@@ -145,7 +145,7 @@ pub use tower;
 
 mod config;
 mod error_handling;
-mod metrics;
+mod middleware;
 mod request_id;
 mod server;
 
