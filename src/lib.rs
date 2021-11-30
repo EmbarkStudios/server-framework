@@ -564,6 +564,11 @@ impl<F> Server<F> {
     ///     .unwrap();
     /// # };
     /// ```
+    ///
+    /// Note that "errors" means errors produced by a middleware, not the application itself. The
+    /// service(s) that makes up the actual application is required to be infallible such that
+    /// we're to always produce a response. An endpoint returning `500 Internal Server Error` is
+    /// not considered an "error" and this method is not for handling such cases.
     pub fn handle_error<G, T>(self, error_handler: G) -> Server<G>
     where
         G: Clone + Send + 'static,
