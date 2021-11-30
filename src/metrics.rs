@@ -7,7 +7,7 @@ use std::{
 };
 
 use axum::extract::MatchedPath;
-use http::{Request, Response};
+use http::{Method, Request, Response};
 use pin_project_lite::pin_project;
 use tower::{layer::LayerFn, Service};
 
@@ -43,9 +43,11 @@ where
             req.uri().path().to_owned()
         };
 
+        let method = req.method().clone();
+
         RecordMetricsFuture {
             inner: self.inner.call(req),
-            path: Some(path),
+            request_data: Some((method, path)),
             start,
         }
     }
@@ -55,7 +57,7 @@ pin_project! {
     pub(crate) struct RecordMetricsFuture<F> {
         #[pin]
         inner: F,
-        path: Option<String>,
+        request_data: Option<(Method, String)>,
         start: Instant,
     }
 }
@@ -74,8 +76,16 @@ where
                 let latency = this.start.elapsed().as_secs_f64();
 
                 let status = res.status().as_u16().to_string();
-                let path = this.path.take().expect("future polled after completion");
-                let labels = [("path", path), ("status", status)];
+                let (method, path) = this
+                    .request_data
+                    .take()
+                    .expect("future polled after completion");
+
+                let labels = [
+                    ("method", method.to_string()),
+                    ("path", path),
+                    ("status", status),
+                ];
 
                 metrics::increment_counter!("http_requests_total", &labels);
                 metrics::histogram!("http_requests_duration_seconds", latency, &labels);
