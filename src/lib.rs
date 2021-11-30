@@ -140,7 +140,7 @@
 use self::metrics::RecordMetrics;
 use anyhow::Context as _;
 use axum::{
-    body::{self, BoxBody, HttpBody},
+    body::{self, BoxBody},
     error_handling::{HandleError, HandleErrorLayer},
     extract::Extension,
     routing::{get, Route},
@@ -155,8 +155,6 @@ use std::{
     fmt,
     future::{ready, Ready},
     net::SocketAddr,
-    pin::Pin,
-    task::{Context, Poll},
     time::Duration,
 };
 use tower::{timeout::Timeout, Service, ServiceBuilder};
@@ -613,7 +611,6 @@ impl<F> Server<F> {
             // these middleware are called for all routes
             .layer(
                 ServiceBuilder::new()
-                    .map_request_body(|body| WrappedBody { body })
                     .map_request_body(body::boxed)
                     .layer(HandleErrorLayer::new(self.error_handler))
                     .timeout(Duration::from_secs(timeout_sec)),
@@ -710,43 +707,6 @@ fn default_error_handler(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Unhandled internal error: {}", err),
         ))
-    }
-}
-
-// this type wont be present when we publish
-// using it here to ensure we support middleware that modify the request body type
-// which is something our internal version doesn't support well
-struct WrappedBody<B> {
-    body: B,
-}
-
-impl<B> HttpBody for WrappedBody<B>
-where
-    B: HttpBody + Unpin,
-{
-    type Data = B::Data;
-    type Error = B::Error;
-
-    fn poll_data(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        Pin::new(&mut self.body).poll_data(cx)
-    }
-
-    fn poll_trailers(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
-        Pin::new(&mut self.body).poll_trailers(cx)
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
-    }
-
-    fn size_hint(&self) -> http_body::SizeHint {
-        self.body.size_hint()
     }
 }
 
