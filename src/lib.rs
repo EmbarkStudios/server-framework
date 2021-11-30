@@ -251,7 +251,7 @@ impl Config {
     }
 }
 
-/// A batteries included HTTP server.
+/// An HTTP server that runs [`Service`]s with a conventional stack of middleware.
 pub struct Server<F> {
     config: Config,
     router: Router<BoxBody>,
@@ -689,13 +689,22 @@ fn default_error_handler(
     Extension(request_id): Extension<RequestId>,
     err: BoxError,
 ) -> Ready<(StatusCode, String)> {
-    tracing::error!(
-        %err,
-        %method,
-        %uri,
-        request_id = %request_id.header_value().to_str().unwrap(),
-        "error from middleware",
-    );
+    if let Ok(request_id) = request_id.header_value().to_str() {
+        tracing::error!(
+            %err,
+            %method,
+            %uri,
+            request_id = %request_id,
+            "error from middleware",
+        );
+    } else {
+        tracing::error!(
+            %err,
+            %method,
+            %uri,
+            "error from middleware",
+        );
+    }
 
     if err.is::<tower::timeout::error::Elapsed>() {
         ready((
@@ -715,7 +724,7 @@ struct MakeRequestUuid;
 
 impl tower_http::request_id::MakeRequestId for MakeRequestUuid {
     fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
-        let request_id = Uuid::new_v4().to_string().parse().unwrap();
+        let request_id = Uuid::new_v4().to_string().parse().ok()?;
         Some(RequestId::new(request_id))
     }
 }
