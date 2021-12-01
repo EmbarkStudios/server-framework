@@ -35,9 +35,10 @@ uuid = { version = "0.8", features = ["v4"] }
 tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
 
 [dependencies.tower-http]
-version = "0.1"
+version = "0.2.0"
 features = [
     "map-request-body",
+    "map-response-body",
     "request-id",
     "util",
 ]
@@ -53,4 +54,3 @@ members = ["examples/*"]
 [patch.crates-io]
 axum = { git = "https://github.com/tokio-rs/axum.git" }
 axum-extra = { git = "https://github.com/tokio-rs/axum.git" }
-tower-http = { git = "https://github.com/tower-rs/tower-http.git" }
