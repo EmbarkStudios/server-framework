@@ -54,7 +54,9 @@ impl ClassifyResponse for HttpOrGrpcClassifier {
         match self {
             HttpOrGrpcClassifier::Grpc => {
                 if let Some(code) = grpc_code_from_headers(res.headers()) {
-                    ClassifiedResponse::Ready(classify_grpc_code(code))
+                    ClassifiedResponse::Ready(
+                        classify_grpc_code(code).map_err(HttpOrGrpcClassification::Grpc),
+                    )
                 } else {
                     ClassifiedResponse::RequiresEos(GrpcClassifyEos)
                 }
@@ -69,11 +71,14 @@ impl ClassifyResponse for HttpOrGrpcClassifier {
         }
     }
 
-    fn classify_error<E>(self, _error: &E) -> Self::FailureClass
+    fn classify_error<E>(self, error: &E) -> Self::FailureClass
     where
         E: fmt::Display + 'static,
     {
-        unreachable!("we handle all errors from middleware so this will never be called")
+        unreachable!(
+            "we handle all errors from middleware so this will never be called. error={}",
+            error
+        )
     }
 }
 
@@ -95,21 +100,24 @@ impl ClassifyEos for GrpcClassifyEos {
             return Ok(());
         };
 
-        classify_grpc_code(code)
+        classify_grpc_code(code).map_err(HttpOrGrpcClassification::Grpc)
     }
 
-    fn classify_error<E>(self, _error: &E) -> Self::FailureClass
+    fn classify_error<E>(self, error: &E) -> Self::FailureClass
     where
         E: fmt::Display + 'static,
     {
-        unreachable!("we handle all errors from middleware so this will never be called")
+        unreachable!(
+            "we handle all errors from middleware so this will never be called. error={}",
+            error
+        )
     }
 }
 
 const GRPC_CONTENT_TYPE: &str = "application/grpc";
 const GRPC_STATUS_HEADER: &str = "grpc-status";
 
-fn is_grpc(headers: &HeaderMap) -> bool {
+pub(super) fn is_grpc(headers: &HeaderMap) -> bool {
     headers
         .get(http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -117,17 +125,23 @@ fn is_grpc(headers: &HeaderMap) -> bool {
         || headers.contains_key(GRPC_STATUS_HEADER)
 }
 
-fn grpc_code_from_headers(headers: &HeaderMap) -> Option<u16> {
+pub(super) fn grpc_code_from_headers(headers: &HeaderMap) -> Option<u16> {
     headers
         .get(GRPC_STATUS_HEADER)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse().ok())
 }
 
-fn classify_grpc_code(code: u16) -> Result<(), HttpOrGrpcClassification> {
-    if code == 0 {
+pub(super) fn classify_grpc_code(code: u16) -> Result<(), u16> {
+    const OK: u16 = 0;
+    const INVALID_ARGUMENT: u16 = 3;
+    const NOT_FOUND: u16 = 5;
+
+    let is_success = code == OK || code == INVALID_ARGUMENT || code == NOT_FOUND;
+
+    if is_success {
         Ok(())
     } else {
-        Err(HttpOrGrpcClassification::Grpc(code))
+        Err(code)
     }
 }

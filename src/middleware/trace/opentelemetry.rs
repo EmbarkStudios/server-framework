@@ -1,11 +1,11 @@
-use super::classify::HttpOrGrpcClassification;
+use super::classify::{self, HttpOrGrpcClassification};
 use axum::extract::{ConnectInfo, MatchedPath};
 use http::{header, uri::Scheme, Method, Request, Response, Version};
 use opentelemetry::trace::TraceContextExt;
 use std::{borrow::Cow, net::SocketAddr, time::Duration};
 use tower_http::{
     request_id::RequestId,
-    trace::{MakeSpan, OnFailure, OnResponse},
+    trace::{MakeSpan, OnEos, OnFailure, OnResponse},
 };
 use tracing::{field::Empty, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -30,7 +30,9 @@ impl<B> MakeSpan<B> for OtelMakeSpan {
             .scheme()
             .map_or_else(|| "HTTP".into(), http_scheme);
 
-        let http_route = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
+        let http_route = if classify::is_grpc(req.headers()) {
+            req.uri().path().to_owned()
+        } else if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
             matched_path.as_str().to_owned()
         } else {
             req.uri().path().to_owned()
@@ -58,6 +60,7 @@ impl<B> MakeSpan<B> for OtelMakeSpan {
 
         let span = tracing::info_span!(
             "HTTP request",
+            grpc.code = Empty,
             http.client_ip = %client_ip,
             http.flavor = %http_flavor(req.version()),
             http.host = %host,
@@ -116,7 +119,6 @@ fn http_scheme(scheme: &Scheme) -> Cow<'static, str> {
 }
 
 #[derive(Clone, Debug)]
-#[non_exhaustive]
 pub(crate) struct OtelOnResponse;
 
 impl<B> OnResponse<B> for OtelOnResponse {
@@ -124,13 +126,27 @@ impl<B> OnResponse<B> for OtelOnResponse {
         let status = response.status().as_u16().to_string();
         span.record("http.status_code", &tracing::field::display(status));
 
+        if let Some(code) = classify::grpc_code_from_headers(response.headers()) {
+            span.record("grpc.code", &code);
+        }
+
         // assume there is no error, if there is `OtelOnFailure` will be called and override this
         span.record("otel.status_code", &"OK");
     }
 }
 
 #[derive(Clone, Debug)]
-#[non_exhaustive]
+pub(crate) struct OtelOnEos;
+
+impl OnEos for OtelOnEos {
+    fn on_eos(self, trailers: Option<&http::HeaderMap>, _stream_duration: Duration, span: &Span) {
+        if let Some(code) = trailers.and_then(classify::grpc_code_from_headers) {
+            span.record("grpc.code", &code);
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct OtelOnFailure;
 
 impl OnFailure<HttpOrGrpcClassification> for OtelOnFailure {
@@ -142,11 +158,7 @@ impl OnFailure<HttpOrGrpcClassification> for OtelOnFailure {
                 }
             }
             HttpOrGrpcClassification::Grpc(code) => {
-                const OK: u16 = 0;
-                const INVALID_ARGUMENT: u16 = 3;
-                const NOT_FOUND: u16 = 5;
-
-                if code != OK && code != INVALID_ARGUMENT && code != NOT_FOUND {
+                if classify::classify_grpc_code(code).is_err() {
                     span.record("otel.status_code", &"ERROR");
                 }
             }
