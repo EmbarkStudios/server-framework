@@ -1,0 +1,11 @@
+[package]
+name = "example-axum"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+server-framework = { path = "../../", default_features = false }
+tokio = { version = "1.14", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,3 +1,55 @@
+//! Opinionated framework for running network servers.
+//!
+//! This crate builds on top of libraries like [`tower`], [`hyper`], [`axum`], and [`tonic`], and
+//! provides an opinionated way to run services built with those libraries.
+//!
+//! This is how we run all our Rust network services at [Embark Studios].
+//!
+//! [Embark Studios]: https://www.embark-studios.com
+//!
+//! # Example
+//!
+//! ```rust
+//! use server_framework::{Server, Config};
+//! use axum::{Router, routing::get};
+//!
+//! // parse config from command line arguments
+//! let config = Config::from_args();
+//!
+//! // build our application with a few routes
+//! let routes = Router::new()
+//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .route("/foo", get(|| async { "Hi from `GET /foo`" }));
+//!
+//! # async {
+//! // run our server
+//! Server::new(config)
+//!     .with(routes)
+//!     .serve()
+//!     .await
+//!     .unwrap();
+//! # };
+//! ```
+//!
+//! # Middleware
+//!
+//! At its core `server-framework` is a collection of `tower` middleware that extends your app with
+//! Embark's conventions and best practices.
+//!
+//! The middleware stack includes:
+//!
+//! - Timeouts
+//! - Setting and propagating request id headers
+//! - Metrics recording
+//!
+//! # Features
+//!
+//! `server-framework` includes the following optional features:
+//!
+//! | Name | Description | Default |
+//! |---|---|---|
+//! | `tonic` | Enables support for running tonic services | Yes |
+
 // BEGIN - Embark standard lints v5 for Rust 1.55+
 // do not change or add/remove here, but one can add exceptions after this section
 // for more info see: <https://github.com/EmbarkStudios/rust-ecosystem/issues/59>
@@ -81,11 +133,23 @@
 // crate-specific exceptions:
 #![allow(elided_lifetimes_in_paths, clippy::type_complexity)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![deny(
-    unreachable_pub,
-    private_in_public,
-    // TODO(david): enable these before publishing
-    // missing_debug_implementations,
-    // missing_docs,
-)]
+#![warn(missing_debug_implementations, missing_docs)]
+#![deny(unreachable_pub, private_in_public)]
 #![forbid(unsafe_code)]
+
+pub use axum;
+pub use http;
+#[cfg(feature = "tonic")]
+pub use tonic;
+pub use tower;
+
+mod config;
+mod error_handling;
+mod middleware;
+mod request_id;
+mod server;
+
+pub use self::{config::Config, server::Server};
+
+#[cfg(feature = "tonic")]
+pub use self::server::router_from_tonic;

@@ -12,6 +12,45 @@ description = "Opinionated framework for running network servers"
 categories = ["asynchronous", "network-programming", "web-programming"]
 keywords = ["http", "web", "framework", "service"]
 
+[features]
+default = ["tonic"]
+
 [dependencies]
+anyhow = "1.0"
+axum = { version = "0.3" }
+axum-extra = "0.1"
+clap = "3.0.0-beta.5"
+http = "0.2"
+http-body = "0.4"
+hyper = { version = "0.14", features = ["full"] }
+metrics = "0.17"
+metrics-exporter-prometheus = "0.6"
+pin-project-lite = "0.2"
+tokio = { version = "1.14", features = ["rt-multi-thread", "signal"] }
+tower = { version = "0.4", features = ["util", "timeout"] }
+tracing = "0.1"
+uuid = { version = "0.8", features = ["v4"] }
+
+# optional dependencies
+tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
+
+[dependencies.tower-http]
+version = "0.2.0"
+features = [
+    "map-request-body",
+    "map-response-body",
+    "request-id",
+    "util",
+]
 
 [dev-dependencies]
+serde_json = "1.0"
+
+[workspace]
+members = ["examples/*"]
+
+# TODO: before publishing this crate, publish new version of axum and tower-http
+# and remove these patches
+[patch.crates-io]
+axum = { git = "https://github.com/tokio-rs/axum.git" }
+axum-extra = { git = "https://github.com/tokio-rs/axum.git" }

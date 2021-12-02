@@ -29,7 +29,7 @@ jobs:
       - name: cargo clippy
         run: |
           rustup component add clippy
-          cargo clippy --all-targets --all-features -- -D warnings
+          cargo clippy --all-targets --all-features --workspace -- -D warnings
 
   test:
     name: Test
@@ -45,42 +45,75 @@ jobs:
           override: true
       - run: cargo fetch
       - name: cargo test build
-        run: cargo build --tests
+        run: cargo build --tests --workspace
       - name: cargo test
-        run: cargo test
+        run: cargo test --workspace
 
-  publish-check:
-    name: Publish Check
+  check-docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - run: cargo fetch
-      - name: cargo publish check
-        run: cargo publish --dry-run
-
-  # TODO: You must add a crates.io API token to your GH secrets and name it CRATES_IO_TOKEN
-  publish:
-    name: Publish
-    needs: [test, publish-check]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         override: true
-    - name: cargo fetch
-      uses: actions-rs/cargo@v1
-      with:
-        command: fetch
-    - name: cargo publish
-      uses: actions-rs/cargo@v1
+    - name: cargo doc
+      working-directory: ${{ matrix.subcrate }}
       env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links"
+      run: cargo doc --all-features --no-deps --workspace
+
+  cargo-hack:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
       with:
-        command: publish
+        toolchain: stable
+        override: true
+    - name: Install cargo-hack
+      run: |
+        curl -LsSf https://github.com/taiki-e/cargo-hack/releases/latest/download/cargo-hack-x86_64-unknown-linux-gnu.tar.gz | tar xzf - -C ~/.cargo/bin
+    - name: cargo hack check
+      working-directory: ${{ matrix.subcrate }}
+      env:
+        RUSTFLAGS: "-D unused_imports -D dead_code -D unused_variables"
+      run: cargo hack check --each-feature --no-dev-deps --workspace
+
+  # This doesn't work with `[patch.crates-io]`. Can enable this when we've published
+  # new versions of axum and tower-http
+  # publish-check:
+  #   name: Publish Check
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         override: true
+  #     - run: cargo fetch
+  #     - name: cargo publish check
+  #       run: cargo publish --dry-run
+
+  # # TODO: You must add a crates.io API token to your GH secrets and name it CRATES_IO_TOKEN
+  # publish:
+  #   name: Publish
+  #   needs: [test, publish-check]
+  #   runs-on: ubuntu-latest
+  #   if: startsWith(github.ref, 'refs/tags/')
+  #   steps:
+  #   - uses: actions/checkout@v1
+  #   - uses: actions-rs/toolchain@v1
+  #     with:
+  #       toolchain: stable
+  #       override: true
+  #   - name: cargo fetch
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       command: fetch
+  #   - name: cargo publish
+  #     uses: actions-rs/cargo@v1
+  #     env:
+  #       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+  #     with:
+  #       command: publish
