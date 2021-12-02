@@ -35,6 +35,7 @@ mod tests {
         Router,
     };
     use http::{header::HeaderName, HeaderMap, HeaderValue, Method, Request, StatusCode, Version};
+    use http_body::Body as _;
     use serde_json::{json, Value};
     use std::sync::mpsc::{self, Receiver, SyncSender};
     use tower::{Service, ServiceExt};
@@ -230,7 +231,7 @@ mod tests {
                 tx.send_trailers(headers).await.unwrap();
             });
 
-            (StatusCode::OK, body)
+            (StatusCode::OK, body.boxed())
         }
 
         fn mock_grpc_request_to(uri: &str) -> Request<Body> {
