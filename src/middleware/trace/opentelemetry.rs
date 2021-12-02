@@ -10,6 +10,9 @@ use tower_http::{
 use tracing::{field::Empty, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+/// A [`MakeSpan`] that creates tracing spans using [OpenTelemetry's conventional field names][otel].
+///
+/// [otel]: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/semantic_conventions/http.md
 #[derive(Clone, Copy)]
 pub(crate) struct OtelMakeSpan;
 
@@ -118,6 +121,16 @@ fn http_scheme(scheme: &Scheme) -> Cow<'static, str> {
     }
 }
 
+// If remote request has no span data the propagator defaults to an unsampled context
+fn extract_remote_context(headers: &http::HeaderMap) -> opentelemetry::Context {
+    let extractor = opentelemetry_http::HeaderExtractor(headers);
+    opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor))
+}
+
+/// Callback that [`Trace`] will call when it receives a response. This is called regardless if the
+/// response is classified as a success or failure.
+///
+/// [`Trace`]: tower_http::trace::TRACE
 #[derive(Clone, Debug)]
 pub(crate) struct OtelOnResponse;
 
@@ -135,6 +148,10 @@ impl<B> OnResponse<B> for OtelOnResponse {
     }
 }
 
+/// Callback that [`Trace`] will call when a streaming response completes. This is called
+/// regardless if the stream is classified as a success or failure.
+///
+/// [`Trace`]: tower_http::trace::TRACE
 #[derive(Clone, Debug)]
 pub(crate) struct OtelOnEos;
 
@@ -146,6 +163,12 @@ impl OnEos for OtelOnEos {
     }
 }
 
+/// Callback that [`Trace`] will call when a response or end-of-stream is classified as a failure.
+///
+/// Since we require all services and middleware to be infallible this will never be called for
+/// "errors" in the `tower::Service::Error` sense. A response will always be produced.
+///
+/// [`Trace`]: tower_http::trace::TRACE
 #[derive(Clone, Debug)]
 pub(crate) struct OtelOnFailure;
 
@@ -164,10 +187,4 @@ impl OnFailure<HttpOrGrpcClassification> for OtelOnFailure {
             }
         }
     }
-}
-
-// If remote request has no span data the propagator defaults to an unsampled context
-fn extract_remote_context(headers: &http::HeaderMap) -> opentelemetry::Context {
-    let extractor = opentelemetry_http::HeaderExtractor(headers);
-    opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor))
 }

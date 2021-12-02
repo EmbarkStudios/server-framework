@@ -2,7 +2,7 @@ use http::HeaderMap;
 use std::fmt;
 use tower_http::classify::{ClassifiedResponse, ClassifyEos, ClassifyResponse, MakeClassifier};
 
-/// A classified `HTTP` or `gRPC` response.
+/// A classified HTTP or gRPC response.
 #[derive(Debug, Clone)]
 pub(crate) enum HttpOrGrpcClassification {
     Http(http::StatusCode),
@@ -18,7 +18,7 @@ impl fmt::Display for HttpOrGrpcClassification {
     }
 }
 
-/// [`MakeClassifier`] that classifies responses as either `HTTP` or `gRPC` based on the
+/// [`MakeClassifier`] that classifies responses as either HTTP or gRPC based on the
 /// `content-type`.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MakeHttpOrGrpcClassifier;
@@ -37,6 +37,8 @@ impl MakeClassifier for MakeHttpOrGrpcClassifier {
     }
 }
 
+/// [`ClassifyResponse`] that classifies responses as either HTTP or gRPC. Created by
+/// [`MakeHttpOrGrpcClassifier`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum HttpOrGrpcClassifier {
     Grpc,
@@ -137,9 +139,9 @@ pub(super) fn classify_grpc_code(code: u16) -> Result<(), u16> {
     const INVALID_ARGUMENT: u16 = 3;
     const NOT_FOUND: u16 = 5;
 
-    let is_success = code == OK || code == INVALID_ARGUMENT || code == NOT_FOUND;
+    let is_success_or_client_error = code == OK || code == INVALID_ARGUMENT || code == NOT_FOUND;
 
-    if is_success {
+    if is_success_or_client_error {
         Ok(())
     } else {
         Err(code)
