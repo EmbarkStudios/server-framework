@@ -25,6 +25,7 @@ pub struct Server<F> {
     config: Config,
     router: Router<BoxBody>,
     error_handler: F,
+    metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
 }
 
 impl Default for Server<DefaultErrorHandler> {
@@ -33,6 +34,7 @@ impl Default for Server<DefaultErrorHandler> {
             config: Config::parse(),
             router: Default::default(),
             error_handler: default_error_handler,
+            metric_buckets: None,
         }
     }
 }
@@ -42,6 +44,7 @@ impl<F> fmt::Debug for Server<F> {
         f.debug_struct("Server")
             .field("config", &self.config)
             .field("router", &self.router)
+            .field("metric_buckets", &self.metric_buckets)
             .finish()
     }
 }
@@ -51,8 +54,9 @@ impl Server<DefaultErrorHandler> {
     pub fn new(config: Config) -> Self {
         Self {
             config,
-            router: Router::new(),
+            router: Default::default(),
             error_handler: default_error_handler,
+            metric_buckets: Default::default(),
         }
     }
 }
@@ -348,7 +352,18 @@ impl<F> Server<F> {
             config: self.config,
             router: self.router,
             error_handler,
+            metric_buckets: self.metric_buckets,
         }
+    }
+
+    /// Set additional metric buckets to define on the prometheus recorder.
+    ///
+    /// Calling this multiple times will append to the list of buckets.
+    pub fn metric_buckets(mut self, buckets: Vec<(Matcher, Vec<f64>)>) -> Self {
+        self.metric_buckets
+            .get_or_insert(Default::default())
+            .extend(buckets);
+        self
     }
 
     /// Run the server.
@@ -370,7 +385,10 @@ impl<F> Server<F> {
             metrics_health_port,
         } = self.config;
 
-        tokio::spawn(expose_metrics_and_health(metrics_health_port));
+        tokio::spawn(expose_metrics_and_health(
+            metrics_health_port,
+            self.metric_buckets,
+        ));
 
         let request_id_header = HeaderName::from_bytes(request_id_header.as_bytes())
             .with_context(|| format!("Invalid request id: {:?}", request_id_header))?;
@@ -408,17 +426,24 @@ impl<F> Server<F> {
 type FallibleService = Timeout<Route<BoxBody>>;
 
 /// Run a second HTTP server that exposes metrics (and soon) health checks.
-async fn expose_metrics_and_health(metrics_health_port: u16) {
+async fn expose_metrics_and_health(
+    metrics_health_port: u16,
+    metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
+) {
     const EXPONENTIAL_SECONDS: &[f64] = &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
     ];
 
-    let recorder = PrometheusBuilder::new()
-        .set_buckets_for_metric(
-            Matcher::Full("http_requests_duration_seconds".to_string()),
-            EXPONENTIAL_SECONDS,
-        )
-        .build();
+    let mut recorder_builder = PrometheusBuilder::new().set_buckets_for_metric(
+        Matcher::Full("http_requests_duration_seconds".to_string()),
+        EXPONENTIAL_SECONDS,
+    );
+
+    for (matcher, values) in metric_buckets.into_iter().flatten().collect::<Vec<_>>() {
+        recorder_builder = recorder_builder.set_buckets_for_metric(matcher, &values);
+    }
+
+    let recorder = recorder_builder.build();
 
     let recorder_handle = recorder.handle();
 
