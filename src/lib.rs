@@ -42,6 +42,17 @@
 //! - Setting and propagating request id headers
 //! - Metrics recording
 //!
+//! # Metrics and health checks
+//!
+//! [`Server::serve`] will also start a second HTTP server separate from your primary application
+//! that serves metrics and health checks. The default URLs are:
+//!
+//! - `GET host:8081/metrics`
+//! - `GET host:8081/health/live`
+//! - `GET host:8081/health/ready`
+//!
+//! The port can be configred with [`Config::metrics_health_port`].
+//!
 //! # Features
 //!
 //! `server-framework` includes the following optional features:
@@ -142,6 +153,8 @@ pub use http;
 #[cfg(feature = "tonic")]
 pub use tonic;
 pub use tower;
+
+pub mod health;
 
 mod config;
 mod error_handling;

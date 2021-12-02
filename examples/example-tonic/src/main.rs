@@ -16,6 +16,7 @@ async fn main() {
 
     Server::new(config)
         .with_tonic(service)
+        .always_live_and_ready()
         .serve()
         .await
         .expect("server failed to start");
