@@ -397,7 +397,7 @@ impl<F> Server<F> {
         hyper::Server::bind(&bind_address)
             .http2_only(http2_only)
             .serve(make_svc)
-            .with_graceful_shutdown(ctrl_c())
+            .with_graceful_shutdown(signal_listener())
             .await?;
 
         Ok(())
@@ -440,13 +440,32 @@ async fn expose_metrics_and_health(metrics_health_port: u16) {
 
     hyper::Server::bind(&bind_address)
         .serve(router.into_make_service())
-        .with_graceful_shutdown(ctrl_c())
+        .with_graceful_shutdown(signal_listener())
         .await
         .unwrap();
 }
 
-async fn ctrl_c() {
-    let _ = tokio::signal::ctrl_c().await;
+#[cfg(target_family = "unix")]
+async fn signal_listener() {
+    use tokio::signal::unix::SignalKind;
+    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
+        .expect("Failed to listen on SIGTERM signal");
+    tokio::select! {
+        _ = sigterm.recv() => {
+            tracing::info!("SIGTERM received, shutting down server");
+        }
+        _ = tokio::signal::ctrl_c() =>  {
+            tracing::info!("Ctrl-c received, shutting down server");
+        }
+    }
+}
+
+#[cfg(not(target_family = "unix"))]
+async fn signal_listener() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for Ctrl-c signal");
+    tracing::info!("Ctrl-c received, shutting down server");
 }
 
 /// Convert a [`tonic`] service into a [`Router`].
