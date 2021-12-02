@@ -148,7 +148,9 @@
 #![deny(unreachable_pub, private_in_public)]
 #![forbid(unsafe_code)]
 
+pub use anyhow;
 pub use axum;
+pub use axum::async_trait;
 pub use http;
 #[cfg(feature = "tonic")]
 pub use tonic;
