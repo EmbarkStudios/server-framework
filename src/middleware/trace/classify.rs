@@ -135,15 +135,20 @@ pub(super) fn grpc_code_from_headers(headers: &HeaderMap) -> Option<u16> {
 }
 
 pub(super) fn classify_grpc_code(code: u16) -> Result<(), u16> {
+    // these are considered client errors
     const OK: u16 = 0;
     const INVALID_ARGUMENT: u16 = 3;
     const NOT_FOUND: u16 = 5;
+    const ALREADY_EXISTS: u16 = 6;
+    const PERMISSION_DENIED: u16 = 7;
+    const FAILED_PRECONDITION: u16 = 9;
+    const OUT_OF_RANGE: u16 = 11;
+    const UNIMPLEMENTED: u16 = 12;
+    const UNAUTHENTICATED: u16 = 16;
 
-    let is_success_or_client_error = code == OK || code == INVALID_ARGUMENT || code == NOT_FOUND;
-
-    if is_success_or_client_error {
-        Ok(())
-    } else {
-        Err(code)
+    match code {
+        OK | INVALID_ARGUMENT | NOT_FOUND | ALREADY_EXISTS | PERMISSION_DENIED
+        | FAILED_PRECONDITION | OUT_OF_RANGE | UNIMPLEMENTED | UNAUTHENTICATED => Ok(()),
+        _ => Err(code),
     }
 }
