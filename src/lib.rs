@@ -152,3 +152,9 @@ pub use self::{config::Config, server::Server};
 
 #[cfg(feature = "tonic")]
 pub use self::server::router_from_tonic;
+
+pub mod metrics {
+    //! Types and utilities for metrics.
+
+    pub use metrics_exporter_prometheus::Matcher;
+}

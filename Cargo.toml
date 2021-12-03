@@ -17,7 +17,7 @@ default = ["tonic"]
 
 [dependencies]
 anyhow = "1.0"
-axum = { version = "0.3" }
+axum = { version = "0.4" }
 axum-extra = "0.1"
 clap = "3.0.0-beta.5"
 http = "0.2"
@@ -54,9 +54,3 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 
 [workspace]
 members = ["examples/*"]
-
-# TODO: before publishing this crate, publish new version of axum and tower-http
-# and remove these patches
-[patch.crates-io]
-axum = { git = "https://github.com/tokio-rs/axum.git" }
-axum-extra = { git = "https://github.com/tokio-rs/axum.git" }
