@@ -439,7 +439,7 @@ async fn expose_metrics_and_health(
         EXPONENTIAL_SECONDS,
     );
 
-    for (matcher, values) in metric_buckets.into_iter().flatten().collect::<Vec<_>>() {
+    for (matcher, values) in metric_buckets.into_iter().flatten() {
         recorder_builder = recorder_builder.set_buckets_for_metric(matcher, &values);
     }
 
