@@ -1,10 +1,9 @@
 use crate::{
     error_handling::{default_error_handler, DefaultErrorHandler},
-    middleware::metrics::RecordMetrics,
+    middleware::{metrics, trace},
     request_id::MakeRequestUuid,
     Config,
 };
-use anyhow::Context as _;
 use axum::{
     body::{self, BoxBody},
     error_handling::{HandleError, HandleErrorLayer},
@@ -367,7 +366,7 @@ impl<F> Server<F> {
     }
 
     /// Run the server.
-    pub async fn serve<T>(self) -> anyhow::Result<()>
+    pub async fn serve<T>(mut self) -> anyhow::Result<()>
     where
         F: Clone + Send + 'static,
         T: 'static,
@@ -377,39 +376,16 @@ impl<F> Server<F> {
     {
         tracing::debug!("server listening on {}", self.config.bind_address);
 
-        let Config {
-            bind_address,
-            http2_only,
-            timeout_sec,
-            request_id_header,
-            metrics_health_port,
-        } = self.config;
+        let bind_address = self.config.bind_address;
+        let http2_only = self.config.http2_only;
 
         tokio::spawn(expose_metrics_and_health(
-            metrics_health_port,
-            self.metric_buckets,
+            self.config.metrics_health_port,
+            self.metric_buckets.take(),
         ));
 
-        let request_id_header = HeaderName::from_bytes(request_id_header.as_bytes())
-            .with_context(|| format!("Invalid request id: {:?}", request_id_header))?;
-
         let make_svc = self
-            .router
-            // these middleware are called for all routes
-            .layer(
-                ServiceBuilder::new()
-                    .map_request_body(body::boxed)
-                    .layer(HandleErrorLayer::new(self.error_handler))
-                    .timeout(Duration::from_secs(timeout_sec)),
-            )
-            // these middleware are _only_ called for known routes
-            .route_layer(
-                ServiceBuilder::new()
-                    .set_request_id(request_id_header.clone(), MakeRequestUuid)
-                    // any potential trace layer must be added here, between these two layers
-                    .propagate_request_id(request_id_header)
-                    .layer(RecordMetrics::layer()),
-            )
+            .into_service()
             .into_make_service_with_connect_info::<SocketAddr, _>();
 
         hyper::Server::bind(&bind_address)
@@ -419,6 +395,36 @@ impl<F> Server<F> {
             .await?;
 
         Ok(())
+    }
+
+    /// Get the underlying service with middleware applied.
+    pub fn into_service<T>(self) -> Router<axum::body::Body>
+    where
+        F: Clone + Send + 'static,
+        T: 'static,
+        HandleError<FallibleService, F, T>:
+            Service<Request<BoxBody>, Response = Response<BoxBody>, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+    {
+        let request_id_header = HeaderName::from_bytes(self.config.request_id_header.as_bytes())
+            .unwrap_or_else(|_| panic!("Invalid request id: {:?}", self.config.request_id_header));
+
+        self.router
+            // these middleware are called for all routes
+            .layer(
+                ServiceBuilder::new()
+                    .map_request_body(body::boxed)
+                    .layer(HandleErrorLayer::new(self.error_handler))
+                    .timeout(Duration::from_secs(self.config.timeout_sec)),
+            )
+            // these middleware are _only_ called for known routes
+            .route_layer(
+                ServiceBuilder::new()
+                    .set_request_id(request_id_header.clone(), MakeRequestUuid)
+                    .layer(trace::layer())
+                    .propagate_request_id(request_id_header)
+                    .layer(metrics::layer()),
+            )
     }
 }
 

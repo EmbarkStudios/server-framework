@@ -11,15 +11,13 @@ use http::{Method, Request, Response};
 use pin_project_lite::pin_project;
 use tower::{layer::LayerFn, Service};
 
+pub(crate) fn layer<S>() -> LayerFn<fn(S) -> RecordMetrics<S>> {
+    tower::layer::layer_fn(|inner| RecordMetrics { inner })
+}
+
 #[derive(Clone)]
 pub(crate) struct RecordMetrics<S> {
     inner: S,
-}
-
-impl<S> RecordMetrics<S> {
-    pub(crate) fn layer() -> LayerFn<fn(S) -> Self> {
-        tower::layer::layer_fn(|inner| Self { inner })
-    }
 }
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for RecordMetrics<S>
