@@ -88,6 +88,7 @@ impl<F, H> Server<F, H> {
     /// # async {
     /// Server::default()
     ///     .with(routes)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -143,6 +144,7 @@ impl<F, H> Server<F, H> {
     /// # async {
     /// Server::default()
     ///     .with(Users::resource())
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -166,6 +168,7 @@ impl<F, H> Server<F, H> {
     /// Server::default()
     ///     .with(routes)
     ///     .with(api_routes)
+    ///     .always_live_and_ready()
     ///     // our server now accepts `GET /` and `GET /api`
     ///     .serve()
     ///     .await
@@ -222,6 +225,7 @@ impl<F, H> Server<F, H> {
     /// # async {
     /// Server::default()
     ///     .with_tonic(service)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -262,6 +266,7 @@ impl<F, H> Server<F, H> {
     /// # async {
     /// Server::default()
     ///     .fallback(fallback.into_service())
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -313,6 +318,7 @@ impl<F, H> Server<F, H> {
     /// # async {
     /// Server::default()
     ///     .handle_error(handle_error)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -343,6 +349,7 @@ impl<F, H> Server<F, H> {
     /// # async {
     /// Server::default()
     ///     .handle_error(handle_error)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -497,7 +504,7 @@ async fn expose_metrics_and_health<H>(
             )
             .route(
                 "/health/live",
-                get(|Extension(mut health_check): Extension<H>| async move {
+                get(|Extension(health_check): Extension<H>| async move {
                     if let Err(err) = health_check.is_live().await {
                         let err = error_display_chain(&err);
                         tracing::error!("readiness heath check failed: {}", err);
@@ -509,7 +516,7 @@ async fn expose_metrics_and_health<H>(
             )
             .route(
                 "/health/ready",
-                get(|Extension(mut health_check): Extension<H>| async move {
+                get(|Extension(health_check): Extension<H>| async move {
                     if let Err(err) = health_check.is_ready().await {
                         let err = error_display_chain(&err);
                         tracing::error!("liveness heath check failed: {}", err);

@@ -11,14 +11,14 @@ pub trait HealthCheck: Clone + Send + Sync + 'static {
     /// Corresponds to a `livenessProbe` within Kubernetes.
     ///
     /// Used to determine if the pod is live and working or if it should be killed and restarted.
-    async fn is_live(&mut self) -> anyhow::Result<()>;
+    async fn is_live(&self) -> anyhow::Result<()>;
 
     /// Corresponds to a `readinessProbe` within Kubernetes.
     ///
     /// Used to determine if a pod is ready to receive traffic. Contrary to `is_live`, pods that
     /// aren't ready wont be restarted. This can be used to temporarily remove a pod from the load
     /// balancer while it performs some heavy task without having the pod killed.
-    async fn is_ready(&mut self) -> anyhow::Result<()>;
+    async fn is_ready(&self) -> anyhow::Result<()>;
 
     /// Combine two health checks into one.
     ///
@@ -49,15 +49,13 @@ where
     A: HealthCheck,
     B: HealthCheck,
 {
-    async fn is_live(&mut self) -> anyhow::Result<()> {
-        self.lhs.is_live().await?;
-        self.rhs.is_live().await?;
+    async fn is_live(&self) -> anyhow::Result<()> {
+        tokio::try_join!(self.lhs.is_live(), self.rhs.is_live())?;
         Ok(())
     }
 
-    async fn is_ready(&mut self) -> anyhow::Result<()> {
-        self.lhs.is_ready().await?;
-        self.rhs.is_ready().await?;
+    async fn is_ready(&self) -> anyhow::Result<()> {
+        tokio::try_join!(self.lhs.is_ready(), self.rhs.is_ready())?;
         Ok(())
     }
 }
@@ -74,11 +72,11 @@ pub struct AlwaysLiveAndReady;
 
 #[async_trait]
 impl HealthCheck for AlwaysLiveAndReady {
-    async fn is_live(&mut self) -> anyhow::Result<()> {
+    async fn is_live(&self) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn is_ready(&mut self) -> anyhow::Result<()> {
+    async fn is_ready(&self) -> anyhow::Result<()> {
         Ok(())
     }
 }

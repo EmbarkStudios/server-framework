@@ -25,6 +25,7 @@
 //! // run our server
 //! Server::new(config)
 //!     .with(routes)
+//!     .always_live_and_ready()
 //!     .serve()
 //!     .await
 //!     .unwrap();
