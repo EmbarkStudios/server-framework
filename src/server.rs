@@ -1,5 +1,6 @@
 use crate::{
     error_handling::{default_error_handler, DefaultErrorHandler},
+    health::{AlwaysLiveAndReady, HealthCheck, NoHealthCheckProvided},
     middleware::{metrics, trace},
     request_id::MakeRequestUuid,
     Config,
@@ -13,54 +14,66 @@ use axum::{
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
 use clap::Parser;
-use http::{header::HeaderName, Request, Response};
+use http::{header::HeaderName, Request, Response, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use std::{convert::Infallible, fmt, net::SocketAddr, time::Duration};
+use std::{
+    convert::Infallible,
+    fmt::{self, Write},
+    net::SocketAddr,
+    time::Duration,
+};
 use tower::{timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
 
 /// An HTTP server that runs [`Service`]s with a conventional stack of middleware.
-pub struct Server<F> {
+pub struct Server<F, H> {
     config: Config,
     router: Router<BoxBody>,
     error_handler: F,
+    health_check: H,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
 }
 
-impl Default for Server<DefaultErrorHandler> {
+impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
     fn default() -> Self {
         Self {
             config: Config::parse(),
             router: Default::default(),
             error_handler: default_error_handler,
+            health_check: NoHealthCheckProvided,
             metric_buckets: None,
         }
     }
 }
 
-impl<F> fmt::Debug for Server<F> {
+impl<F, H> fmt::Debug for Server<F, H>
+where
+    H: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Server")
             .field("config", &self.config)
             .field("router", &self.router)
+            .field("health_check", &self.health_check)
             .field("metric_buckets", &self.metric_buckets)
             .finish()
     }
 }
 
-impl Server<DefaultErrorHandler> {
+impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
     /// Create a new `Server` with the given config.
     pub fn new(config: Config) -> Self {
         Self {
             config,
             router: Default::default(),
             error_handler: default_error_handler,
+            health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
         }
     }
 }
 
-impl<F> Server<F> {
+impl<F, H> Server<F, H> {
     /// Add routes to the server.
     ///
     /// This supports anything that implements [`HasRoutes`] such as [`Router`]:
@@ -74,6 +87,7 @@ impl<F> Server<F> {
     /// # async {
     /// Server::default()
     ///     .with(routes)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -129,6 +143,7 @@ impl<F> Server<F> {
     /// # async {
     /// Server::default()
     ///     .with(Users::resource())
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -152,6 +167,7 @@ impl<F> Server<F> {
     /// Server::default()
     ///     .with(routes)
     ///     .with(api_routes)
+    ///     .always_live_and_ready()
     ///     // our server now accepts `GET /` and `GET /api`
     ///     .serve()
     ///     .await
@@ -208,6 +224,7 @@ impl<F> Server<F> {
     /// # async {
     /// Server::default()
     ///     .with_tonic(service)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -248,6 +265,7 @@ impl<F> Server<F> {
     /// # async {
     /// Server::default()
     ///     .fallback(fallback.into_service())
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -299,6 +317,7 @@ impl<F> Server<F> {
     /// # async {
     /// Server::default()
     ///     .handle_error(handle_error)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -329,6 +348,7 @@ impl<F> Server<F> {
     /// # async {
     /// Server::default()
     ///     .handle_error(handle_error)
+    ///     .always_live_and_ready()
     ///     .serve()
     ///     .await
     ///     .unwrap();
@@ -339,7 +359,7 @@ impl<F> Server<F> {
     /// service(s) that makes up the actual application is required to be infallible such that
     /// we're to always produce a response. An endpoint returning `500 Internal Server Error` is
     /// not considered an "error" and this method is not for handling such cases.
-    pub fn handle_error<G, T>(self, error_handler: G) -> Server<G>
+    pub fn handle_error<G, T>(self, error_handler: G) -> Server<G, H>
     where
         G: Clone + Send + 'static,
         T: 'static,
@@ -351,8 +371,28 @@ impl<F> Server<F> {
             config: self.config,
             router: self.router,
             error_handler,
+            health_check: self.health_check,
             metric_buckets: self.metric_buckets,
         }
+    }
+
+    /// Provide the health check the server should use.
+    pub fn with_health_check<H2>(self, health_check: H2) -> Server<F, H2>
+    where
+        H2: HealthCheck,
+    {
+        Server {
+            config: self.config,
+            router: self.router,
+            error_handler: self.error_handler,
+            health_check,
+            metric_buckets: self.metric_buckets,
+        }
+    }
+
+    /// Mark this service as always being live and ready.
+    pub fn always_live_and_ready(self) -> Server<F, AlwaysLiveAndReady> {
+        self.with_health_check(AlwaysLiveAndReady)
     }
 
     /// Set additional metric buckets to define on the prometheus recorder.
@@ -373,6 +413,7 @@ impl<F> Server<F> {
         HandleError<FallibleService, F, T>:
             Service<Request<BoxBody>, Response = Response<BoxBody>, Error = Infallible>,
         <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+        H: HealthCheck,
     {
         tracing::debug!("server listening on {}", self.config.bind_address);
 
@@ -382,6 +423,7 @@ impl<F> Server<F> {
         tokio::spawn(expose_metrics_and_health(
             self.config.metrics_health_port,
             self.metric_buckets.take(),
+            self.health_check.clone(),
         ));
 
         let make_svc = self
@@ -431,11 +473,14 @@ impl<F> Server<F> {
 /// The type of service that produces the errors `Server.error_handler` will receive
 type FallibleService = Timeout<Route<BoxBody>>;
 
-/// Run a second HTTP server that exposes metrics (and soon) health checks.
-async fn expose_metrics_and_health(
+/// Run a second HTTP server that exposes metrics and health checks.
+async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
-) {
+    health_check: H,
+) where
+    H: HealthCheck,
+{
     const EXPONENTIAL_SECONDS: &[f64] = &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
     ];
@@ -463,7 +508,35 @@ async fn expose_metrics_and_health(
                     recorder_handle.render()
                 }),
             )
-            .layer(ServiceBuilder::new().layer(AddExtensionLayer::new(recorder_handle)));
+            .route(
+                "/health/live",
+                get(|Extension(health_check): Extension<H>| async move {
+                    if let Err(err) = health_check.is_live().await {
+                        let err = error_display_chain(&err);
+                        tracing::error!("readiness heath check failed: {}", err);
+                        Err((StatusCode::SERVICE_UNAVAILABLE, err))
+                    } else {
+                        Ok(())
+                    }
+                }),
+            )
+            .route(
+                "/health/ready",
+                get(|Extension(health_check): Extension<H>| async move {
+                    if let Err(err) = health_check.is_ready().await {
+                        let err = error_display_chain(&err);
+                        tracing::error!("liveness heath check failed: {}", err);
+                        Err((StatusCode::SERVICE_UNAVAILABLE, err))
+                    } else {
+                        Ok(())
+                    }
+                }),
+            )
+            .layer(
+                ServiceBuilder::new()
+                    .layer(AddExtensionLayer::new(recorder_handle))
+                    .layer(AddExtensionLayer::new(health_check)),
+            );
 
     let bind_address = SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, metrics_health_port));
 
@@ -519,4 +592,13 @@ where
         .map_response_body(body::boxed)
         .service(service);
     Router::new().route(&format!("/{}/*rest", S::NAME), svc)
+}
+
+fn error_display_chain(error: &anyhow::Error) -> String {
+    let mut s = error.to_string();
+    for source in error.chain() {
+        s.push_str(" -> ");
+        let _ = write!(s, "{}", source);
+    }
+    s
 }

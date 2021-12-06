@@ -25,6 +25,7 @@
 //! // run our server
 //! Server::new(config)
 //!     .with(routes)
+//!     .always_live_and_ready()
 //!     .serve()
 //!     .await
 //!     .unwrap();
@@ -42,6 +43,17 @@
 //! - Setting and propagating request id headers
 //! - Metrics recording
 //! - Tracing with OpenTelemetry support
+//!
+//! # Metrics and health checks
+//!
+//! [`Server::serve`] will also start a second HTTP server separate from your primary application
+//! that serves metrics and health checks. The default URLs are:
+//!
+//! - `GET host:8081/metrics`
+//! - `GET host:8081/health/live`
+//! - `GET host:8081/health/ready`
+//!
+//! The port can be configred with [`Config::metrics_health_port`].
 //!
 //! # Features
 //!
@@ -136,11 +148,15 @@
 #![deny(unreachable_pub, private_in_public)]
 #![forbid(unsafe_code)]
 
+pub use anyhow;
 pub use axum;
+pub use axum::async_trait;
 pub use http;
 #[cfg(feature = "tonic")]
 pub use tonic;
 pub use tower;
+
+pub mod health;
 
 mod config;
 mod error_handling;

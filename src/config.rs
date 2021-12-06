@@ -27,6 +27,7 @@ use std::net::SocketAddr;
 ///
 /// # async {
 /// Server::new(config.server_config)
+///     .always_live_and_ready()
 ///     .serve()
 ///     .await
 ///     .unwrap();

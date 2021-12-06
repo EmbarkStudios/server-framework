@@ -13,6 +13,7 @@ async fn main() {
 
     Server::new(config)
         .with(routes)
+        .always_live_and_ready()
         .serve()
         .await
         .expect("server failed to start");
