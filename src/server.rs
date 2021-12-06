@@ -467,7 +467,7 @@ impl<F, H> Server<F, H> {
 /// The type of service that produces the errors `Server.error_handler` will receive
 type FallibleService = Timeout<Route<BoxBody>>;
 
-/// Run a second HTTP server that exposes metrics (and soon) health checks.
+/// Run a second HTTP server that exposes metrics and health checks.
 async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
