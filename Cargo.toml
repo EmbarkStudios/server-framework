@@ -25,10 +25,13 @@ http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
 metrics = "0.17"
 metrics-exporter-prometheus = "0.6"
+opentelemetry = { version = "0.16.0" }
+opentelemetry-http = { version = "0.5.0" }
 pin-project-lite = "0.2"
 tokio = { version = "1.14", features = ["rt-multi-thread", "signal", "macros"] }
 tower = { version = "0.4", features = ["util", "timeout"] }
 tracing = "0.1"
+tracing-opentelemetry = "0.16"
 uuid = { version = "0.8", features = ["v4"] }
 
 # optional dependencies
@@ -40,11 +43,14 @@ features = [
     "map-request-body",
     "map-response-body",
     "request-id",
+    "trace",
     "util",
 ]
 
 [dev-dependencies]
+assert-json-diff = "2.0"
 serde_json = "1.0"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 
 [workspace]
 members = ["examples/*"]

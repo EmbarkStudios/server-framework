@@ -24,7 +24,7 @@ async fn main() {
 
 fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "example_axum=debug,server_framework=debug")
+        std::env::set_var("RUST_LOG", "example_tonic=debug,server_framework=debug")
     }
     tracing_subscriber::fmt::init();
 }
@@ -38,8 +38,6 @@ impl Greeter for MyGreeter {
         &self,
         request: tonic::Request<HelloRequest>,
     ) -> Result<tonic::Response<HelloReply>, tonic::Status> {
-        tracing::debug!(?request);
-
         let reply = hello_world::HelloReply {
             message: format!("Hello {}!", request.into_inner().name),
         };

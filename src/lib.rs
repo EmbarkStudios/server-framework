@@ -42,6 +42,7 @@
 //! - Timeouts
 //! - Setting and propagating request id headers
 //! - Metrics recording
+//! - Tracing with OpenTelemetry support
 //!
 //! # Metrics and health checks
 //!
@@ -75,7 +76,6 @@
     clippy::debug_assert_with_mut_call,
     clippy::disallowed_method,
     clippy::disallowed_type,
-    clippy::doc_markdown,
     clippy::empty_enum,
     clippy::enum_glob_use,
     clippy::exit,
@@ -123,7 +123,6 @@
     clippy::ref_option_ref,
     clippy::rest_pat_in_fully_bound_structs,
     clippy::same_functions_in_if_condition,
-    clippy::semicolon_if_nothing_returned,
     clippy::single_match_else,
     clippy::string_add_assign,
     clippy::string_add,
