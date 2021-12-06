@@ -9,12 +9,13 @@ use axum::{
     body::{self, BoxBody},
     error_handling::{HandleError, HandleErrorLayer},
     extract::Extension,
+    response::Response,
     routing::{get, Route},
     AddExtensionLayer, Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
 use clap::Parser;
-use http::{header::HeaderName, Request, Response, StatusCode};
+use http::{header::HeaderName, Request, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
     convert::Infallible,
@@ -199,7 +200,7 @@ impl<F, H> Server<F, H> {
     /// #     const NAME: &'static str = "";
     /// # }
     /// # impl<T> tower::Service<http::Request<axum::body::BoxBody>> for GreeterServer<T> {
-    /// #     type Response = http::Response<axum::body::BoxBody>;
+    /// #     type Response = axum::response::Response;
     /// #     type Error = tonic::codegen::Never;
     /// #     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
     /// #     fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
@@ -364,7 +365,7 @@ impl<F, H> Server<F, H> {
         G: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, G, T>:
-            Service<Request<BoxBody>, Response = Response<BoxBody>, Error = Infallible>,
+            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
         <HandleError<FallibleService, G, T> as Service<Request<BoxBody>>>::Future: Send,
     {
         Server {
@@ -411,7 +412,7 @@ impl<F, H> Server<F, H> {
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response<BoxBody>, Error = Infallible>,
+            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
         <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
         H: HealthCheck,
     {
@@ -445,7 +446,7 @@ impl<F, H> Server<F, H> {
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response<BoxBody>, Error = Infallible>,
+            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
         <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
     {
         let request_id_header = HeaderName::from_bytes(self.config.request_id_header.as_bytes())
