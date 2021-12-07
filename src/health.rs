@@ -1,5 +1,6 @@
 //! Kubernetes compatible healh check
 
+use std::sync::Arc;
 use axum::async_trait;
 
 /// Used to setup health checks for Kubernetes.
@@ -7,7 +8,7 @@ use axum::async_trait;
 /// Learn more at
 /// <https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/>
 #[async_trait]
-pub trait HealthCheck: Clone + Send + Sync + 'static {
+pub trait HealthCheck: Send + Sync + 'static {
     /// Corresponds to a `livenessProbe` within Kubernetes.
     ///
     /// Used to determine if the pod is live and working or if it should be killed and restarted.
@@ -29,6 +30,17 @@ pub trait HealthCheck: Clone + Send + Sync + 'static {
         T: HealthCheck,
     {
         And { lhs: self, rhs }
+    }
+}
+
+#[async_trait]
+impl HealthCheck for Arc<dyn HealthCheck + Send + Sync> {
+    async fn is_live(&self) -> anyhow::Result<()> {
+        HealthCheck::is_live(&**self).await
+    }
+
+    async fn is_ready(&self) -> anyhow::Result<()> {
+        HealthCheck::is_ready(&**self).await
     }
 }
 
@@ -66,7 +78,7 @@ where
 /// necessary.
 ///
 /// [`Server::always_live_and_ready`]: crate::Server::always_live_and_ready
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[non_exhaustive]
 pub struct AlwaysLiveAndReady;
 

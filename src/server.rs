@@ -23,6 +23,7 @@ use std::{
     net::SocketAddr,
     time::Duration,
 };
+use tokio::net::TcpListener;
 use tower::{timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
 
@@ -380,7 +381,7 @@ impl<F, H> Server<F, H> {
     /// Provide the health check the server should use.
     pub fn with_health_check<H2>(self, health_check: H2) -> Server<F, H2>
     where
-        H2: HealthCheck,
+        H2: HealthCheck + Clone,
     {
         Server {
             config: self.config,
@@ -407,18 +408,37 @@ impl<F, H> Server<F, H> {
     }
 
     /// Run the server.
-    pub async fn serve<T>(mut self) -> anyhow::Result<()>
+    pub async fn serve<T>(self) -> anyhow::Result<()>
     where
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
             Service<Request<BoxBody>, Response = Response, Error = Infallible>,
         <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
-        H: HealthCheck,
+        H: HealthCheck + Clone,
     {
-        tracing::debug!("server listening on {}", self.config.bind_address);
+        let listener = TcpListener::bind(&self.config.bind_address).await?;
+        self.serve_with_listener(listener).await
+    }
 
-        let bind_address = self.config.bind_address;
+    /// Run the server with the given [`TcpListener`].
+    ///
+    /// Note this disregards `bind_address` of the config.
+    pub async fn serve_with_listener<T>(mut self, listener: TcpListener) -> anyhow::Result<()>
+    where
+        F: Clone + Send + 'static,
+        T: 'static,
+        HandleError<FallibleService, F, T>:
+            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+        H: HealthCheck + Clone,
+    {
+        let listener = listener.into_std()?;
+
+        if let Ok(addr) = listener.local_addr() {
+            tracing::debug!("server listening on {}", addr);
+        }
+
         let http2_only = self.config.http2_only;
 
         tokio::spawn(expose_metrics_and_health(
@@ -431,7 +451,7 @@ impl<F, H> Server<F, H> {
             .into_service()
             .into_make_service_with_connect_info::<SocketAddr, _>();
 
-        hyper::Server::bind(&bind_address)
+        hyper::Server::from_tcp(listener)?
             .http2_only(http2_only)
             .serve(make_svc)
             .with_graceful_shutdown(signal_listener())
@@ -480,7 +500,7 @@ async fn expose_metrics_and_health<H>(
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
     health_check: H,
 ) where
-    H: HealthCheck,
+    H: HealthCheck + Clone,
 {
     const EXPONENTIAL_SECONDS: &[f64] = &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
