@@ -86,13 +86,14 @@ impl Config {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn test() -> Config {
-    Config {
-        bind_address: "0.0.0.0:8080".parse().unwrap(),
-        metrics_health_port: 8081,
-        http2_only: false,
-        timeout_sec: 30,
-        request_id_header: "x-request-id".to_owned(),
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bind_address: SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 8080)),
+            metrics_health_port: 8081,
+            http2_only: false,
+            timeout_sec: 30,
+            request_id_header: "x-request-id".to_owned(),
+        }
     }
 }

@@ -14,7 +14,6 @@ use axum::{
     AddExtensionLayer, Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
-use clap::Parser;
 use http::{header::HeaderName, Request, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
@@ -39,7 +38,7 @@ pub struct Server<F, H> {
 impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
     fn default() -> Self {
         Self {
-            config: Config::parse(),
+            config: Default::default(),
             router: Default::default(),
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
