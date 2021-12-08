@@ -33,6 +33,7 @@ pub struct Server<F, H> {
     error_handler: F,
     health_check: H,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
+    testing: bool,
 }
 
 impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
@@ -43,6 +44,7 @@ impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
+            testing: false,
         }
     }
 }
@@ -52,11 +54,21 @@ where
     H: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            config,
+            router,
+            health_check,
+            metric_buckets,
+            error_handler: _,
+            testing,
+        } = self;
+
         f.debug_struct("Server")
-            .field("config", &self.config)
-            .field("router", &self.router)
-            .field("health_check", &self.health_check)
-            .field("metric_buckets", &self.metric_buckets)
+            .field("config", &config)
+            .field("router", &router)
+            .field("health_check", &health_check)
+            .field("metric_buckets", &metric_buckets)
+            .field("testing", &testing)
             .finish()
     }
 }
@@ -70,6 +82,7 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
+            testing: false,
         }
     }
 }
@@ -374,6 +387,7 @@ impl<F, H> Server<F, H> {
             error_handler,
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
+            testing: self.testing,
         }
     }
 
@@ -388,6 +402,7 @@ impl<F, H> Server<F, H> {
             error_handler: self.error_handler,
             health_check,
             metric_buckets: self.metric_buckets,
+            testing: self.testing,
         }
     }
 
@@ -403,6 +418,14 @@ impl<F, H> Server<F, H> {
         self.metric_buckets
             .get_or_insert(Default::default())
             .extend(buckets);
+        self
+    }
+
+    /// Run the server in testing mode.
+    ///
+    /// This will disable exposing metrics and health.
+    pub fn testing(mut self, testing: bool) -> Self {
+        self.testing = testing;
         self
     }
 
@@ -422,7 +445,7 @@ impl<F, H> Server<F, H> {
 
     /// Run the server with the given [`TcpListener`].
     ///
-    /// Note this disregards `bind_address` of the config.
+    /// Note this disregards `bind_address` from the config.
     pub async fn serve_with_listener<T>(mut self, listener: TcpListener) -> anyhow::Result<()>
     where
         F: Clone + Send + 'static,
@@ -440,11 +463,13 @@ impl<F, H> Server<F, H> {
 
         let http2_only = self.config.http2_only;
 
-        tokio::spawn(expose_metrics_and_health(
-            self.config.metrics_health_port,
-            self.metric_buckets.take(),
-            self.health_check.clone(),
-        ));
+        if !self.testing {
+            tokio::spawn(expose_metrics_and_health(
+                self.config.metrics_health_port,
+                self.metric_buckets.take(),
+                self.health_check.clone(),
+            ));
+        }
 
         let make_svc = self
             .into_service()

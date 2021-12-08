@@ -151,7 +151,6 @@
 pub use anyhow;
 pub use axum;
 pub use axum::async_trait;
-use axum::body::BoxBody;
 pub use http;
 #[cfg(feature = "tonic")]
 pub use tonic;
@@ -164,6 +163,8 @@ mod error_handling;
 mod middleware;
 mod request_id;
 mod server;
+
+use axum::body::BoxBody;
 
 pub use self::{config::Config, server::Server};
 
