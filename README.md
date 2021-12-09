@@ -20,6 +20,10 @@ Opinionated framework for running network servers
 [![Build status](https://github.com/EmbarkStudios/physx-rs/workflows/CI/badge.svg)](https://github.com/EmbarkStudios/physx-rs/actions)
 </div>
 
+## 🚨 Work in progress 🚨
+
+This project is still very much work in progress. Do not use this yet! The name is also gonna change before the actual release.
+
 ## Contribution
 
 [![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4-ff69b4.svg)](../main/CODE_OF_CONDUCT.md)
