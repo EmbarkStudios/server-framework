@@ -3,7 +3,7 @@ use crate::{
     health::{AlwaysLiveAndReady, HealthCheck, NoHealthCheckProvided},
     middleware::{metrics, trace},
     request_id::MakeRequestUuid,
-    Config,
+    Config, Request
 };
 use axum::{
     body::{self, BoxBody},
@@ -14,7 +14,7 @@ use axum::{
     AddExtensionLayer, Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
-use http::{header::HeaderName, Request, StatusCode};
+use http::{header::HeaderName, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
     convert::Infallible,
@@ -247,7 +247,7 @@ impl<F, H> Server<F, H> {
     #[cfg(feature = "tonic")]
     pub fn with_tonic<S, B>(self, service: S) -> Self
     where
-        S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
+        S: Service<Request, Response = Response<B>, Error = tonic::codegen::Never>
             + tonic::transport::NamedService
             + Clone
             + Send
@@ -257,6 +257,23 @@ impl<F, H> Server<F, H> {
         B::Error: Into<axum::BoxError>,
     {
         self.with(router_from_tonic(service))
+    }
+
+    ///
+    pub fn with_service<S, B>(self, service: S) -> Self
+    where
+        S: Service<Request, Response = Response<B>, Error = Infallible>
+            + Clone
+            + Send
+            + 'static,
+        S::Future: Send,
+        B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
+        B::Error: Into<axum::BoxError>,
+    {
+        let svc = ServiceBuilder::new()
+            .map_response_body(body::boxed)
+            .service(service);
+        self.with(Router::new().nest("/", svc))
     }
 
     /// Add a fallback service.
@@ -287,7 +304,7 @@ impl<F, H> Server<F, H> {
     /// ```
     pub fn fallback<S, B>(mut self, svc: S) -> Self
     where
-        S: Service<Request<BoxBody>, Response = Response<B>, Error = Infallible>
+        S: Service<Request, Response = Response<B>, Error = Infallible>
             + Clone
             + Send
             + 'static,
@@ -378,8 +395,8 @@ impl<F, H> Server<F, H> {
         G: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, G, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, G, T> as Service<Request<BoxBody>>>::Future: Send,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, G, T> as Service<Request>>::Future: Send,
     {
         Server {
             config: self.config,
@@ -435,8 +452,8 @@ impl<F, H> Server<F, H> {
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request>>::Future: Send,
         H: HealthCheck + Clone,
     {
         let listener = TcpListener::bind(&self.config.bind_address).await?;
@@ -451,8 +468,8 @@ impl<F, H> Server<F, H> {
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request>>::Future: Send,
         H: HealthCheck + Clone,
     {
         let listener = listener.into_std()?;
@@ -490,8 +507,8 @@ impl<F, H> Server<F, H> {
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request>>::Future: Send,
     {
         let request_id_header = HeaderName::from_bytes(self.config.request_id_header.as_bytes())
             .unwrap_or_else(|_| panic!("Invalid request id: {:?}", self.config.request_id_header));
@@ -623,7 +640,7 @@ async fn signal_listener() {
 #[cfg(feature = "tonic")]
 pub fn router_from_tonic<S, B>(service: S) -> Router<BoxBody>
 where
-    S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
+    S: Service<Request, Response = Response<B>, Error = tonic::codegen::Never>
         + tonic::transport::NamedService
         + Clone
         + Send

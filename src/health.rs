@@ -1,7 +1,7 @@
 //! Kubernetes compatible healh check
 
-use std::sync::Arc;
 use axum::async_trait;
+use std::sync::{Arc, Mutex};
 
 /// Used to setup health checks for Kubernetes.
 ///
@@ -99,3 +99,42 @@ impl HealthCheck for AlwaysLiveAndReady {
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub struct NoHealthCheckProvided;
+
+/// A switch that allows you kill and restart a pod. Must be setup as a health check when booting
+/// the service.
+#[derive(Debug, Clone, Default)]
+pub struct KillSwitch {
+    killed: Arc<Mutex<Option<anyhow::Error>>>,
+}
+
+impl KillSwitch {
+    /// Create a new `KillSwitch`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Flick the kill switch and restart the service.
+    ///
+    /// This makes [`is_live`](HealthCheck::is_live) return the given error. It does not impact
+    /// [`is_ready`](HealthCheck::is_ready).
+    ///
+    /// `reason` allows you to add some context that will be logged.
+    pub fn kill(&mut self, reason: impl Into<anyhow::Error>) {
+        *self.killed.lock().expect("mutex poisoned") = Some(reason.into());
+    }
+}
+
+#[async_trait]
+impl HealthCheck for KillSwitch {
+    async fn is_live(&self) -> anyhow::Result<()> {
+        if let Some(killed) = self.killed.lock().expect("mutex poisoned").take() {
+            Err(killed)
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn is_ready(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}

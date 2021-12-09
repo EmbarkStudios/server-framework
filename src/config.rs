@@ -35,6 +35,7 @@ use std::net::SocketAddr;
 /// ```
 #[derive(Debug, Clone, clap::Parser)]
 #[non_exhaustive]
+#[clap(long_about = "")]
 pub struct Config {
     /// The socket address the server will bind to.
     ///

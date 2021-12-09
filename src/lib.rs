@@ -175,6 +175,12 @@ pub use self::server::router_from_tonic;
 /// requires.
 pub type Router<B = BoxBody> = axum::Router<B>;
 
+/// Type alias for [`http::Request`] with [`BoxBody`] as the body type, which this crate requires.
+pub type Request<B = BoxBody> = http::Request<B>;
+
+#[doc(inline)]
+pub use axum::response::Response;
+
 pub mod metrics {
     //! Types and utilities for metrics.
 
