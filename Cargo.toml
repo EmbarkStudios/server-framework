@@ -17,14 +17,14 @@ default = ["tonic"]
 
 [dependencies]
 anyhow = "1.0"
-axum = { version = "0.4.1" }
-axum-extra = "0.1"
+axum = { version = "0.4.3" }
+axum-extra = "0.1.1"
 clap = { version = "3.0", features = ["derive", "env"] }
 http = "0.2"
 http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
 metrics = "0.17"
-metrics-exporter-prometheus = "0.6"
+metrics-exporter-prometheus = "0.7"
 opentelemetry = { version = "0.16.0" }
 opentelemetry-http = { version = "0.5.0" }
 pin-project-lite = "0.2"
