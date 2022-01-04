@@ -1,7 +1,8 @@
 //! Kubernetes compatible healh check
 
 use axum::async_trait;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 /// Used to setup health checks for Kubernetes.
 ///
@@ -120,14 +121,14 @@ impl KillSwitch {
     ///
     /// `reason` allows you to add some context that will be logged.
     pub fn kill(&mut self, reason: impl Into<anyhow::Error>) {
-        *self.killed.lock().expect("mutex poisoned") = Some(reason.into());
+        *self.killed.lock() = Some(reason.into());
     }
 }
 
 #[async_trait]
 impl HealthCheck for KillSwitch {
     async fn is_live(&self) -> anyhow::Result<()> {
-        if let Some(killed) = self.killed.lock().expect("mutex poisoned").take() {
+        if let Some(killed) = self.killed.lock().take() {
             Err(killed)
         } else {
             Ok(())
