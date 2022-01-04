@@ -259,7 +259,10 @@ impl<F, H> Server<F, H> {
         self.with(router_from_tonic(service))
     }
 
+    /// Router all requests to the given service.
     ///
+    /// Note that _all_ requests will be sent to the service and therefore the server cannot
+    /// contain other services. If it does you'll get a panic when calling [`Server::serve`].
     pub fn with_service<S, B>(self, service: S) -> Self
     where
         S: Service<Request, Response = Response<B>, Error = Infallible>
