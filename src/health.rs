@@ -1,8 +1,8 @@
 //! Kubernetes compatible healh check
 
 use axum::async_trait;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Used to setup health checks for Kubernetes.
 ///

@@ -1,9 +1,9 @@
 use crate::{
     error_handling::{default_error_handler, DefaultErrorHandler},
     health::{AlwaysLiveAndReady, HealthCheck, NoHealthCheckProvided},
-    middleware::{metrics, trace},
+    middleware::{metrics, trace, Either},
     request_id::MakeRequestUuid,
-    Config, Request
+    Config, Request,
 };
 use axum::{
     body::{self, BoxBody},
@@ -23,7 +23,7 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpListener;
-use tower::{timeout::Timeout, Service, ServiceBuilder};
+use tower::{layer::util::Identity, timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
 
 /// An HTTP server that runs [`Service`]s with a conventional stack of middleware.
@@ -33,7 +33,7 @@ pub struct Server<F, H> {
     error_handler: F,
     health_check: H,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
-    testing: bool,
+    disable_health_and_metrics: bool,
 }
 
 impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
@@ -44,7 +44,7 @@ impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
-            testing: false,
+            disable_health_and_metrics: false,
         }
     }
 }
@@ -60,7 +60,7 @@ where
             health_check,
             metric_buckets,
             error_handler: _,
-            testing,
+            disable_health_and_metrics,
         } = self;
 
         f.debug_struct("Server")
@@ -68,7 +68,7 @@ where
             .field("router", &router)
             .field("health_check", &health_check)
             .field("metric_buckets", &metric_buckets)
-            .field("testing", &testing)
+            .field("disable_health_and_metrics", &disable_health_and_metrics)
             .finish()
     }
 }
@@ -82,7 +82,7 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
-            testing: false,
+            disable_health_and_metrics: false,
         }
     }
 }
@@ -265,10 +265,7 @@ impl<F, H> Server<F, H> {
     /// contain other services. If it does you'll get a panic when calling [`Server::serve`].
     pub fn with_service<S, B>(self, service: S) -> Self
     where
-        S: Service<Request, Response = Response<B>, Error = Infallible>
-            + Clone
-            + Send
-            + 'static,
+        S: Service<Request, Response = Response<B>, Error = Infallible> + Clone + Send + 'static,
         S::Future: Send,
         B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
         B::Error: Into<axum::BoxError>,
@@ -307,10 +304,7 @@ impl<F, H> Server<F, H> {
     /// ```
     pub fn fallback<S, B>(mut self, svc: S) -> Self
     where
-        S: Service<Request, Response = Response<B>, Error = Infallible>
-            + Clone
-            + Send
-            + 'static,
+        S: Service<Request, Response = Response<B>, Error = Infallible> + Clone + Send + 'static,
         S::Future: Send + 'static,
         B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
         B::Error: Into<axum::BoxError>,
@@ -407,7 +401,7 @@ impl<F, H> Server<F, H> {
             error_handler,
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
-            testing: self.testing,
+            disable_health_and_metrics: self.disable_health_and_metrics,
         }
     }
 
@@ -422,7 +416,7 @@ impl<F, H> Server<F, H> {
             error_handler: self.error_handler,
             health_check,
             metric_buckets: self.metric_buckets,
-            testing: self.testing,
+            disable_health_and_metrics: self.disable_health_and_metrics,
         }
     }
 
@@ -441,11 +435,11 @@ impl<F, H> Server<F, H> {
         self
     }
 
-    /// Run the server in testing mode.
+    /// Disable capturing and reporting health and metrics.
     ///
-    /// This will disable exposing metrics and health.
-    pub fn testing(mut self, testing: bool) -> Self {
-        self.testing = testing;
+    /// This is useful during tests.
+    pub fn disable_health_and_metrics(mut self, disable_health_and_metrics: bool) -> Self {
+        self.disable_health_and_metrics = disable_health_and_metrics;
         self
     }
 
@@ -483,7 +477,7 @@ impl<F, H> Server<F, H> {
 
         let http2_only = self.config.http2_only;
 
-        if !self.testing {
+        if !self.disable_health_and_metrics {
             tokio::spawn(expose_metrics_and_health(
                 self.config.metrics_health_port,
                 self.metric_buckets.take(),
@@ -516,6 +510,12 @@ impl<F, H> Server<F, H> {
         let request_id_header = HeaderName::from_bytes(self.config.request_id_header.as_bytes())
             .unwrap_or_else(|_| panic!("Invalid request id: {:?}", self.config.request_id_header));
 
+        let metrics_layer = if self.disable_health_and_metrics {
+            Either::A(Identity::new())
+        } else {
+            Either::B(metrics::layer())
+        };
+
         self.router
             // these middleware are called for all routes
             .layer(
@@ -530,7 +530,7 @@ impl<F, H> Server<F, H> {
                     .set_request_id(request_id_header.clone(), MakeRequestUuid)
                     .layer(trace::layer())
                     .propagate_request_id(request_id_header)
-                    .layer(metrics::layer()),
+                    .layer(metrics_layer),
             )
     }
 }
