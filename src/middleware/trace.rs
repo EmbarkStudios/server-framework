@@ -27,6 +27,7 @@ pub(crate) fn layer() -> TraceLayer<
 
 #[cfg(test)]
 mod tests {
+    use crate::{config::Config, Server};
     use assert_json_diff::assert_json_include;
     use axum::{
         body::Body,
@@ -45,11 +46,9 @@ mod tests {
         EnvFilter,
     };
 
-    use crate::{config, Server};
-
     #[tokio::test]
     async fn correct_fields_on_span_for_http() {
-        let svc = Server::new(config::test())
+        let svc = Server::new(Config::default())
             .with(
                 Router::new()
                     .route("/", get(|| async { StatusCode::OK }))
@@ -150,7 +149,7 @@ mod tests {
 
     #[tokio::test]
     async fn correct_fields_on_span_for_grpc() {
-        let svc = Server::new(config::test())
+        let svc = Server::new(Config::default())
             .with(
                 Router::new()
                     .route(

@@ -1,9 +1,9 @@
 use crate::{
     error_handling::{default_error_handler, DefaultErrorHandler},
     health::{AlwaysLiveAndReady, HealthCheck, NoHealthCheckProvided},
-    middleware::{metrics, trace},
+    middleware::{metrics, trace, Either},
     request_id::MakeRequestUuid,
-    Config,
+    Config, Request,
 };
 use axum::{
     body::{self, BoxBody},
@@ -14,8 +14,7 @@ use axum::{
     AddExtensionLayer, Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
-use clap::Parser;
-use http::{header::HeaderName, Request, StatusCode};
+use http::{header::HeaderName, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
     convert::Infallible,
@@ -23,7 +22,8 @@ use std::{
     net::SocketAddr,
     time::Duration,
 };
-use tower::{timeout::Timeout, Service, ServiceBuilder};
+use tokio::net::TcpListener;
+use tower::{layer::util::Identity, timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
 
 /// An HTTP server that runs [`Service`]s with a conventional stack of middleware.
@@ -33,16 +33,18 @@ pub struct Server<F, H> {
     error_handler: F,
     health_check: H,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
+    disable_health_and_metrics: bool,
 }
 
 impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
     fn default() -> Self {
         Self {
-            config: Config::parse(),
+            config: Default::default(),
             router: Default::default(),
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
+            disable_health_and_metrics: false,
         }
     }
 }
@@ -52,11 +54,21 @@ where
     H: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            config,
+            router,
+            health_check,
+            metric_buckets,
+            error_handler: _,
+            disable_health_and_metrics,
+        } = self;
+
         f.debug_struct("Server")
-            .field("config", &self.config)
-            .field("router", &self.router)
-            .field("health_check", &self.health_check)
-            .field("metric_buckets", &self.metric_buckets)
+            .field("config", &config)
+            .field("router", &router)
+            .field("health_check", &health_check)
+            .field("metric_buckets", &metric_buckets)
+            .field("disable_health_and_metrics", &disable_health_and_metrics)
             .finish()
     }
 }
@@ -70,6 +82,7 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
+            disable_health_and_metrics: false,
         }
     }
 }
@@ -234,7 +247,7 @@ impl<F, H> Server<F, H> {
     #[cfg(feature = "tonic")]
     pub fn with_tonic<S, B>(self, service: S) -> Self
     where
-        S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
+        S: Service<Request, Response = Response<B>, Error = tonic::codegen::Never>
             + tonic::transport::NamedService
             + Clone
             + Send
@@ -244,6 +257,23 @@ impl<F, H> Server<F, H> {
         B::Error: Into<axum::BoxError>,
     {
         self.with(router_from_tonic(service))
+    }
+
+    /// Router all requests to the given service.
+    ///
+    /// Note that _all_ requests will be sent to the service and therefore the server cannot
+    /// contain other services. If it does you'll get a panic when calling [`Server::serve`].
+    pub fn with_service<S, B>(self, service: S) -> Self
+    where
+        S: Service<Request, Response = Response<B>, Error = Infallible> + Clone + Send + 'static,
+        S::Future: Send,
+        B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
+        B::Error: Into<axum::BoxError>,
+    {
+        let svc = ServiceBuilder::new()
+            .map_response_body(body::boxed)
+            .service(service);
+        self.with(Router::new().nest("/", svc))
     }
 
     /// Add a fallback service.
@@ -274,10 +304,7 @@ impl<F, H> Server<F, H> {
     /// ```
     pub fn fallback<S, B>(mut self, svc: S) -> Self
     where
-        S: Service<Request<BoxBody>, Response = Response<B>, Error = Infallible>
-            + Clone
-            + Send
-            + 'static,
+        S: Service<Request, Response = Response<B>, Error = Infallible> + Clone + Send + 'static,
         S::Future: Send + 'static,
         B: http_body::Body<Data = axum::body::Bytes> + Send + 'static,
         B::Error: Into<axum::BoxError>,
@@ -365,8 +392,8 @@ impl<F, H> Server<F, H> {
         G: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, G, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, G, T> as Service<Request<BoxBody>>>::Future: Send,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, G, T> as Service<Request>>::Future: Send,
     {
         Server {
             config: self.config,
@@ -374,13 +401,14 @@ impl<F, H> Server<F, H> {
             error_handler,
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
+            disable_health_and_metrics: self.disable_health_and_metrics,
         }
     }
 
     /// Provide the health check the server should use.
     pub fn with_health_check<H2>(self, health_check: H2) -> Server<F, H2>
     where
-        H2: HealthCheck,
+        H2: HealthCheck + Clone,
     {
         Server {
             config: self.config,
@@ -388,6 +416,7 @@ impl<F, H> Server<F, H> {
             error_handler: self.error_handler,
             health_check,
             metric_buckets: self.metric_buckets,
+            disable_health_and_metrics: self.disable_health_and_metrics,
         }
     }
 
@@ -406,32 +435,61 @@ impl<F, H> Server<F, H> {
         self
     }
 
+    /// Disable capturing and reporting health and metrics.
+    ///
+    /// This is useful during tests.
+    pub fn disable_health_and_metrics(mut self, disable_health_and_metrics: bool) -> Self {
+        self.disable_health_and_metrics = disable_health_and_metrics;
+        self
+    }
+
     /// Run the server.
-    pub async fn serve<T>(mut self) -> anyhow::Result<()>
+    pub async fn serve<T>(self) -> anyhow::Result<()>
     where
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
-        H: HealthCheck,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request>>::Future: Send,
+        H: HealthCheck + Clone,
     {
-        tracing::debug!("server listening on {}", self.config.bind_address);
+        let listener = TcpListener::bind(&self.config.bind_address).await?;
+        self.serve_with_listener(listener).await
+    }
 
-        let bind_address = self.config.bind_address;
+    /// Run the server with the given [`TcpListener`].
+    ///
+    /// Note this disregards `bind_address` from the config.
+    pub async fn serve_with_listener<T>(mut self, listener: TcpListener) -> anyhow::Result<()>
+    where
+        F: Clone + Send + 'static,
+        T: 'static,
+        HandleError<FallibleService, F, T>:
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request>>::Future: Send,
+        H: HealthCheck + Clone,
+    {
+        let listener = listener.into_std()?;
+
+        if let Ok(addr) = listener.local_addr() {
+            tracing::debug!("server listening on {}", addr);
+        }
+
         let http2_only = self.config.http2_only;
 
-        tokio::spawn(expose_metrics_and_health(
-            self.config.metrics_health_port,
-            self.metric_buckets.take(),
-            self.health_check.clone(),
-        ));
+        if !self.disable_health_and_metrics {
+            tokio::spawn(expose_metrics_and_health(
+                self.config.metrics_health_port,
+                self.metric_buckets.take(),
+                self.health_check.clone(),
+            ));
+        }
 
         let make_svc = self
             .into_service()
             .into_make_service_with_connect_info::<SocketAddr, _>();
 
-        hyper::Server::bind(&bind_address)
+        hyper::Server::from_tcp(listener)?
             .http2_only(http2_only)
             .serve(make_svc)
             .with_graceful_shutdown(signal_listener())
@@ -446,11 +504,17 @@ impl<F, H> Server<F, H> {
         F: Clone + Send + 'static,
         T: 'static,
         HandleError<FallibleService, F, T>:
-            Service<Request<BoxBody>, Response = Response, Error = Infallible>,
-        <HandleError<FallibleService, F, T> as Service<Request<BoxBody>>>::Future: Send,
+            Service<Request, Response = Response, Error = Infallible>,
+        <HandleError<FallibleService, F, T> as Service<Request>>::Future: Send,
     {
         let request_id_header = HeaderName::from_bytes(self.config.request_id_header.as_bytes())
             .unwrap_or_else(|_| panic!("Invalid request id: {:?}", self.config.request_id_header));
+
+        let metrics_layer = if self.disable_health_and_metrics {
+            Either::A(Identity::new())
+        } else {
+            Either::B(metrics::layer())
+        };
 
         self.router
             // these middleware are called for all routes
@@ -466,7 +530,7 @@ impl<F, H> Server<F, H> {
                     .set_request_id(request_id_header.clone(), MakeRequestUuid)
                     .layer(trace::layer())
                     .propagate_request_id(request_id_header)
-                    .layer(metrics::layer()),
+                    .layer(metrics_layer),
             )
     }
 }
@@ -480,7 +544,7 @@ async fn expose_metrics_and_health<H>(
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
     health_check: H,
 ) where
-    H: HealthCheck,
+    H: HealthCheck + Clone,
 {
     const EXPONENTIAL_SECONDS: &[f64] = &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
@@ -579,7 +643,7 @@ async fn signal_listener() {
 #[cfg(feature = "tonic")]
 pub fn router_from_tonic<S, B>(service: S) -> Router<BoxBody>
 where
-    S: Service<Request<BoxBody>, Response = Response<B>, Error = tonic::codegen::Never>
+    S: Service<Request, Response = Response<B>, Error = tonic::codegen::Never>
         + tonic::transport::NamedService
         + Clone
         + Send

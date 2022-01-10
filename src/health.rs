@@ -1,13 +1,15 @@
 //! Kubernetes compatible healh check
 
 use axum::async_trait;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Used to setup health checks for Kubernetes.
 ///
 /// Learn more at
 /// <https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/>
 #[async_trait]
-pub trait HealthCheck: Clone + Send + Sync + 'static {
+pub trait HealthCheck: Send + Sync + 'static {
     /// Corresponds to a `livenessProbe` within Kubernetes.
     ///
     /// Used to determine if the pod is live and working or if it should be killed and restarted.
@@ -29,6 +31,17 @@ pub trait HealthCheck: Clone + Send + Sync + 'static {
         T: HealthCheck,
     {
         And { lhs: self, rhs }
+    }
+}
+
+#[async_trait]
+impl HealthCheck for Arc<dyn HealthCheck + Send + Sync> {
+    async fn is_live(&self) -> anyhow::Result<()> {
+        HealthCheck::is_live(&**self).await
+    }
+
+    async fn is_ready(&self) -> anyhow::Result<()> {
+        HealthCheck::is_ready(&**self).await
     }
 }
 
@@ -66,7 +79,7 @@ where
 /// necessary.
 ///
 /// [`Server::always_live_and_ready`]: crate::Server::always_live_and_ready
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[non_exhaustive]
 pub struct AlwaysLiveAndReady;
 
@@ -87,3 +100,42 @@ impl HealthCheck for AlwaysLiveAndReady {
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub struct NoHealthCheckProvided;
+
+/// A switch that allows you kill and restart a pod. Must be setup as a health check when booting
+/// the service.
+#[derive(Debug, Clone, Default)]
+pub struct KillSwitch {
+    killed: Arc<Mutex<Option<anyhow::Error>>>,
+}
+
+impl KillSwitch {
+    /// Create a new `KillSwitch`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Flick the kill switch and restart the service.
+    ///
+    /// This makes [`is_live`](HealthCheck::is_live) return the given error. It does not impact
+    /// [`is_ready`](HealthCheck::is_ready).
+    ///
+    /// `reason` allows you to add some context that will be logged.
+    pub fn kill(&mut self, reason: impl Into<anyhow::Error>) {
+        *self.killed.lock() = Some(reason.into());
+    }
+}
+
+#[async_trait]
+impl HealthCheck for KillSwitch {
+    async fn is_live(&self) -> anyhow::Result<()> {
+        if let Some(killed) = self.killed.lock().take() {
+            Err(killed)
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn is_ready(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
