@@ -1,7 +1,7 @@
 use crate::{
     error_handling::{default_error_handler, DefaultErrorHandler},
     health::{AlwaysLiveAndReady, HealthCheck, NoHealthCheckProvided},
-    middleware::{metrics, trace, Either},
+    middleware::{metrics::track_metrics, trace, Either},
     request_id::MakeRequestUuid,
     Config, Request,
 };
@@ -513,7 +513,7 @@ impl<F, H> Server<F, H> {
         let metrics_layer = if self.disable_health_and_metrics {
             Either::A(Identity::new())
         } else {
-            Either::B(metrics::layer())
+            Either::B(axum_extra::middleware::from_fn(track_metrics))
         };
 
         self.router
