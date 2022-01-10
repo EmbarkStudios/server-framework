@@ -7,7 +7,7 @@ use server_framework::{
 async fn main() {
     init_tracing();
 
-    let config = Config::from_args();
+    let config = Config::default();
 
     let routes = Router::new().route("/", get(root));
 

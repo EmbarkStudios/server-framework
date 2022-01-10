@@ -19,7 +19,6 @@ default = ["tonic"]
 anyhow = "1.0"
 axum = { version = "0.4.3" }
 axum-extra = "0.1.1"
-clap = { version = "3.0", features = ["derive", "env"] }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 http = "0.2"
 http-body = "0.4"

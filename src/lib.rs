@@ -13,8 +13,8 @@
 //! use server_framework::{Server, Config};
 //! use axum::{Router, routing::get};
 //!
-//! // parse config from command line arguments
-//! let config = Config::from_args();
+//! // use the default config
+//! let config = Config::default();
 //!
 //! // build our application with a few routes
 //! let routes = Router::new()
