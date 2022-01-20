@@ -520,6 +520,7 @@ impl<F, H> Server<F, H> {
             // these middleware are called for all routes
             .layer(
                 ServiceBuilder::new()
+                    .propagate_request_id(request_id_header.clone())
                     .map_request_body(body::boxed)
                     .layer(HandleErrorLayer::new(self.error_handler))
                     .timeout(Duration::from_secs(self.config.timeout_sec)),
@@ -527,11 +528,10 @@ impl<F, H> Server<F, H> {
             // these middleware are _only_ called for known routes
             .route_layer(
                 ServiceBuilder::new()
-                    .set_request_id(request_id_header.clone(), MakeRequestUuid)
                     .layer(trace::layer())
-                    .propagate_request_id(request_id_header)
                     .layer(metrics_layer),
             )
+            .layer(ServiceBuilder::new().set_request_id(request_id_header, MakeRequestUuid))
     }
 }
 
