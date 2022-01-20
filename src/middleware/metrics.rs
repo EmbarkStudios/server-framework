@@ -1,15 +1,11 @@
 use axum::{extract::MatchedPath, response::IntoResponse};
 use axum_extra::middleware::Next;
-use http::Request;
+use http::{header, Request};
 use std::time::Instant;
 
 pub(crate) async fn track_metrics<B>(req: Request<B>, next: Next<B>) -> impl IntoResponse {
     let start = Instant::now();
-    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        matched_path.as_str().to_owned()
-    } else {
-        req.uri().path().to_owned()
-    };
+    let path = path(&req).to_owned();
     let method = req.method().clone();
 
     let res = next.run(req).await;
@@ -26,4 +22,26 @@ pub(crate) async fn track_metrics<B>(req: Request<B>, next: Next<B>) -> impl Int
     metrics::histogram!("http_requests_duration_seconds", latency, &labels);
 
     res
+}
+
+fn path<B>(req: &Request<B>) -> &str {
+    if is_grpc(req) {
+        req.uri().path()
+    } else if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
+        matched_path.as_str()
+    } else {
+        req.uri().path()
+    }
+}
+
+fn is_grpc<B>(req: &Request<B>) -> bool {
+    if let Some(content_type) = content_type(req) {
+        content_type.starts_with("application/grpc")
+    } else {
+        false
+    }
+}
+
+fn content_type<B>(req: &Request<B>) -> Option<&str> {
+    req.headers().get(header::CONTENT_TYPE)?.to_str().ok()
 }
