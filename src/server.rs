@@ -529,10 +529,23 @@ impl<F, H> Server<F, H> {
             .route_layer(
                 ServiceBuilder::new()
                     .layer(trace::layer())
+                    .layer(axum_extra::middleware::from_fn(debug))
                     .layer(metrics_layer),
             )
             .layer(ServiceBuilder::new().set_request_id(request_id_header, MakeRequestUuid))
     }
+}
+
+async fn debug<B>(
+    request: http::Request<B>,
+    next: axum_extra::middleware::Next<B>,
+) -> impl axum::response::IntoResponse {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    tracing::info!("{} {} called", method, uri);
+    let res = next.run(request).await;
+    tracing::info!("{} {} completed", method, uri);
+    res
 }
 
 /// The type of service that produces the errors `Server.error_handler` will receive
