@@ -28,7 +28,19 @@ fn path<B>(req: &Request<B>) -> &str {
     if is_grpc(req) {
         req.uri().path()
     } else if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        matched_path.as_str()
+        let path = matched_path.as_str();
+
+        // In axum, if you nest an opaque `Service` at "/" then that will hijack all requests and
+        // the matched path in the route will simply be `/*axum_nest`. This is what
+        // `Server::with_service` does.
+        //
+        // So if the matched path starts with a wildcard then we don't have the pattern for the
+        // route (such as `/users/:id`) but have to instead use the literal URI on the request.
+        if path.starts_with("/*") {
+            req.uri().path()
+        } else {
+            path
+        }
     } else {
         req.uri().path()
     }
