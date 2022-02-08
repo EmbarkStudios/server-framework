@@ -58,7 +58,7 @@ impl<B> MakeSpan<B> for OtelMakeSpan {
         let span_context = remote_span.span_context();
         let trace_id = span_context
             .is_valid()
-            .then(|| Cow::from(span_context.trace_id().to_hex()))
+            .then(|| Cow::from(span_context.trace_id().to_string()))
             .unwrap_or_default();
 
         let span = tracing::info_span!(
