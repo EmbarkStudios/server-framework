@@ -34,6 +34,7 @@ pub struct Server<F, H> {
     health_check: H,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
     disable_health_and_metrics: bool,
+    disable_graceful_shutdown: bool,
 }
 
 impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
@@ -45,6 +46,7 @@ impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
             disable_health_and_metrics: false,
+            disable_graceful_shutdown: false,
         }
     }
 }
@@ -61,6 +63,7 @@ where
             metric_buckets,
             error_handler: _,
             disable_health_and_metrics,
+            disable_graceful_shutdown,
         } = self;
 
         f.debug_struct("Server")
@@ -69,6 +72,7 @@ where
             .field("health_check", &health_check)
             .field("metric_buckets", &metric_buckets)
             .field("disable_health_and_metrics", &disable_health_and_metrics)
+            .field("disable_graceful_shutdown", &disable_graceful_shutdown)
             .finish()
     }
 }
@@ -83,6 +87,7 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
             disable_health_and_metrics: false,
+            disable_graceful_shutdown: false,
         }
     }
 }
@@ -402,6 +407,7 @@ impl<F, H> Server<F, H> {
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
             disable_health_and_metrics: self.disable_health_and_metrics,
+            disable_graceful_shutdown: self.disable_graceful_shutdown,
         }
     }
 
@@ -417,6 +423,7 @@ impl<F, H> Server<F, H> {
             health_check,
             metric_buckets: self.metric_buckets,
             disable_health_and_metrics: self.disable_health_and_metrics,
+            disable_graceful_shutdown: self.disable_graceful_shutdown,
         }
     }
 
@@ -437,9 +444,17 @@ impl<F, H> Server<F, H> {
 
     /// Disable capturing and reporting health and metrics.
     ///
-    /// This is useful during tests.
+    /// This is useful during tests or local development.
     pub fn disable_health_and_metrics(mut self, disable_health_and_metrics: bool) -> Self {
         self.disable_health_and_metrics = disable_health_and_metrics;
+        self
+    }
+
+    /// Disable graceful shutdown.
+    ///
+    /// This is useful during tests or local development.
+    pub fn disable_graceful_shutdown(mut self, disable_graceful_shutdown: bool) -> Self {
+        self.disable_graceful_shutdown = disable_graceful_shutdown;
         self
     }
 
@@ -476,12 +491,14 @@ impl<F, H> Server<F, H> {
         }
 
         let http2_only = self.config.http2_only;
+        let disable_graceful_shutdown = self.disable_graceful_shutdown;
 
         if !self.disable_health_and_metrics {
             tokio::spawn(expose_metrics_and_health(
                 self.config.metrics_health_port,
                 self.metric_buckets.take(),
                 self.health_check.clone(),
+                disable_graceful_shutdown,
             ));
         }
 
@@ -489,11 +506,15 @@ impl<F, H> Server<F, H> {
             .into_service()
             .into_make_service_with_connect_info::<SocketAddr, _>();
 
-        hyper::Server::from_tcp(listener)?
+        let server = hyper::Server::from_tcp(listener)?
             .http2_only(http2_only)
-            .serve(make_svc)
-            .with_graceful_shutdown(signal_listener())
-            .await?;
+            .serve(make_svc);
+
+        if disable_graceful_shutdown {
+            server.await?;
+        } else {
+            server.with_graceful_shutdown(signal_listener()).await?;
+        }
 
         Ok(())
     }
@@ -543,6 +564,7 @@ async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
     health_check: H,
+    disable_graceful_shutdown: bool,
 ) where
     H: HealthCheck + Clone,
 {
@@ -607,11 +629,16 @@ async fn expose_metrics_and_health<H>(
 
     tracing::debug!("metrics and health server listening on {}", bind_address);
 
-    hyper::Server::bind(&bind_address)
-        .serve(router.into_make_service())
-        .with_graceful_shutdown(signal_listener())
-        .await
-        .unwrap();
+    let server = hyper::Server::bind(&bind_address).serve(router.into_make_service());
+
+    if disable_graceful_shutdown {
+        server.await.unwrap();
+    } else {
+        server
+            .with_graceful_shutdown(signal_listener())
+            .await
+            .unwrap();
+    }
 }
 
 #[cfg(target_family = "unix")]
