@@ -1,5 +1,4 @@
-use axum::{extract::MatchedPath, response::IntoResponse};
-use axum_extra::middleware::Next;
+use axum::{extract::MatchedPath, middleware::Next, response::IntoResponse};
 use http::{header, Request};
 use std::time::Instant;
 
