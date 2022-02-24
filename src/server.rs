@@ -536,7 +536,7 @@ impl<F, H> Server<F, H> {
             .unwrap_or_else(|_| panic!("Invalid request id: {:?}", self.config.request_id_header));
 
         let metrics_layer = if self.with_health_and_metrics {
-            Either::A(axum_extra::middleware::from_fn(track_metrics))
+            Either::A(axum::middleware::from_fn(track_metrics))
         } else {
             Either::B(Identity::new())
         };
