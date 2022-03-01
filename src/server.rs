@@ -11,7 +11,7 @@ use axum::{
     extract::Extension,
     response::Response,
     routing::{get, Route},
-    AddExtensionLayer, Router,
+    Router,
 };
 use axum_extra::routing::{HasRoutes, RouterExt};
 use http::{header::HeaderName, StatusCode};
@@ -625,8 +625,8 @@ async fn expose_metrics_and_health<H>(
             )
             .layer(
                 ServiceBuilder::new()
-                    .layer(AddExtensionLayer::new(recorder_handle))
-                    .layer(AddExtensionLayer::new(health_check)),
+                    .add_extension(recorder_handle)
+                    .add_extension(health_check),
             );
 
     let bind_address = SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, metrics_health_port));
