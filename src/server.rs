@@ -18,7 +18,7 @@ use http::{header::HeaderName, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{
     convert::Infallible,
-    fmt::{self, Write},
+    fmt,
     net::SocketAddr,
     time::Duration,
 };
