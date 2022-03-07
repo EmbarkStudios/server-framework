@@ -17,8 +17,8 @@ default = ["tonic"]
 
 [dependencies]
 anyhow = "1.0"
-axum = { version = "0.4.6" }
-axum-extra = "0.1.4"
+axum = "0.5"
+axum-extra = "0.2"
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 http = "0.2"
 http-body = "0.4"
