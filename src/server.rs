@@ -1,5 +1,5 @@
 use crate::{
-    error_handling::{default_error_handler, DefaultErrorHandler},
+    error_handling::{default_error_handler, error_display_chain, DefaultErrorHandler, TimeoutSec},
     health::{AlwaysLiveAndReady, HealthCheck, NoHealthCheckProvided},
     middleware::{metrics::track_metrics, trace, Either},
     request_id::MakeRequestUuid,
@@ -16,12 +16,7 @@ use axum::{
 use axum_extra::routing::{HasRoutes, RouterExt};
 use http::{header::HeaderName, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use std::{
-    convert::Infallible,
-    fmt::{self, Write},
-    net::SocketAddr,
-    time::Duration,
-};
+use std::{convert::Infallible, fmt, net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 use tower::{layer::util::Identity, timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
@@ -511,6 +506,7 @@ impl<F, H> Server<F, H> {
             // these middleware are called for all routes
             .layer(
                 ServiceBuilder::new()
+                    .add_extension(TimeoutSec(self.config.timeout_sec))
                     .propagate_request_id(request_id_header.clone())
                     .map_request_body(body::boxed)
                     .layer(HandleErrorLayer::new(self.error_handler))
@@ -569,7 +565,7 @@ async fn expose_metrics_and_health<H>(
                 "/health/live",
                 get(|Extension(health_check): Extension<H>| async move {
                     if let Err(err) = health_check.is_live().await {
-                        let err = error_display_chain(&err);
+                        let err = error_display_chain(&*err);
                         tracing::error!("readiness heath check failed: {}", err);
                         Err((StatusCode::SERVICE_UNAVAILABLE, err))
                     } else {
@@ -581,7 +577,7 @@ async fn expose_metrics_and_health<H>(
                 "/health/ready",
                 get(|Extension(health_check): Extension<H>| async move {
                     if let Err(err) = health_check.is_ready().await {
-                        let err = error_display_chain(&err);
+                        let err = error_display_chain(&*err);
                         tracing::error!("liveness heath check failed: {}", err);
                         Err((StatusCode::SERVICE_UNAVAILABLE, err))
                     } else {
@@ -654,13 +650,4 @@ where
         .map_response_body(body::boxed)
         .service(service);
     Router::new().route(&format!("/{}/*rest", S::NAME), svc)
-}
-
-fn error_display_chain(error: &anyhow::Error) -> String {
-    let mut s = error.to_string();
-    for source in error.chain() {
-        s.push_str(" -> ");
-        let _ = write!(s, "{}", source);
-    }
-    s
 }
