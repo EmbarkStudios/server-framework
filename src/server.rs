@@ -33,8 +33,6 @@ pub struct Server<F, H> {
     error_handler: F,
     health_check: H,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
-    with_health_and_metrics: bool,
-    with_graceful_shutdown: bool,
 }
 
 impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
@@ -45,8 +43,6 @@ impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
-            with_health_and_metrics: true,
-            with_graceful_shutdown: true,
         }
     }
 }
@@ -62,8 +58,6 @@ where
             health_check,
             metric_buckets,
             error_handler: _,
-            with_health_and_metrics,
-            with_graceful_shutdown,
         } = self;
 
         f.debug_struct("Server")
@@ -71,8 +65,6 @@ where
             .field("router", &router)
             .field("health_check", &health_check)
             .field("metric_buckets", &metric_buckets)
-            .field("with_health_and_metrics", &with_health_and_metrics)
-            .field("with_graceful_shutdown", &with_graceful_shutdown)
             .finish()
     }
 }
@@ -86,8 +78,6 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
-            with_health_and_metrics: true,
-            with_graceful_shutdown: true,
         }
     }
 }
@@ -406,8 +396,6 @@ impl<F, H> Server<F, H> {
             error_handler,
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
-            with_health_and_metrics: self.with_health_and_metrics,
-            with_graceful_shutdown: self.with_graceful_shutdown,
         }
     }
 
@@ -422,8 +410,6 @@ impl<F, H> Server<F, H> {
             error_handler: self.error_handler,
             health_check,
             metric_buckets: self.metric_buckets,
-            with_health_and_metrics: self.with_health_and_metrics,
-            with_graceful_shutdown: self.with_graceful_shutdown,
         }
     }
 
@@ -439,26 +425,6 @@ impl<F, H> Server<F, H> {
         self.metric_buckets
             .get_or_insert(Default::default())
             .extend(buckets);
-        self
-    }
-
-    /// Enable or disable capturing and reporting health and metrics.
-    ///
-    /// Enabled by default.
-    ///
-    /// This is useful during tests or local development.
-    pub fn with_health_and_metrics(mut self, with_health_and_metrics: bool) -> Self {
-        self.with_health_and_metrics = with_health_and_metrics;
-        self
-    }
-
-    /// Enable or disable graceful shutdown.
-    ///
-    /// Enabled by default.
-    ///
-    /// This is useful during tests or local development.
-    pub fn with_graceful_shutdown(mut self, with_graceful_shutdown: bool) -> Self {
-        self.with_graceful_shutdown = with_graceful_shutdown;
         self
     }
 
@@ -495,14 +461,14 @@ impl<F, H> Server<F, H> {
         }
 
         let http2_only = self.config.http2_only;
-        let with_graceful_shutdown = self.with_graceful_shutdown;
+        let graceful_shutdown = self.config.graceful_shutdown;
 
-        if self.with_health_and_metrics {
+        if self.config.serve_health_and_metrics {
             tokio::spawn(expose_metrics_and_health(
                 self.config.metrics_health_port,
                 self.metric_buckets.take(),
                 self.health_check.clone(),
-                with_graceful_shutdown,
+                graceful_shutdown,
             ));
         }
 
@@ -514,7 +480,7 @@ impl<F, H> Server<F, H> {
             .http2_only(http2_only)
             .serve(make_svc);
 
-        if with_graceful_shutdown {
+        if graceful_shutdown {
             server.with_graceful_shutdown(signal_listener()).await?;
         } else {
             server.await?;
@@ -535,7 +501,7 @@ impl<F, H> Server<F, H> {
         let request_id_header = HeaderName::from_bytes(self.config.request_id_header.as_bytes())
             .unwrap_or_else(|_| panic!("Invalid request id: {:?}", self.config.request_id_header));
 
-        let metrics_layer = if self.with_health_and_metrics {
+        let metrics_layer = if self.config.serve_health_and_metrics {
             Either::A(axum::middleware::from_fn(track_metrics))
         } else {
             Either::B(Identity::new())
@@ -568,7 +534,7 @@ async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
     health_check: H,
-    with_graceful_shutdown: bool,
+    graceful_shutdown: bool,
 ) where
     H: HealthCheck + Clone,
 {
@@ -635,7 +601,7 @@ async fn expose_metrics_and_health<H>(
 
     let server = hyper::Server::bind(&bind_address).serve(router.into_make_service());
 
-    if with_graceful_shutdown {
+    if graceful_shutdown {
         server
             .with_graceful_shutdown(signal_listener())
             .await

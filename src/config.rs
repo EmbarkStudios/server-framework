@@ -28,6 +28,16 @@ pub struct Config {
     ///
     /// Defaults to `x-request-id`.
     pub request_id_header: String,
+
+    /// Whether to run a second server that serves health and metrics.
+    ///
+    /// Defaults to `true`.
+    pub serve_health_and_metrics: bool,
+
+    /// Whether to shutdown the server gracefully.
+    ///
+    /// Defaults to `true`.
+    pub graceful_shutdown: bool,
 }
 
 impl Default for Config {
@@ -38,6 +48,8 @@ impl Default for Config {
             http2_only: false,
             timeout_sec: 30,
             request_id_header: "x-request-id".to_owned(),
+            serve_health_and_metrics: true,
+            graceful_shutdown: true,
         }
     }
 }
