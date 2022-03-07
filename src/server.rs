@@ -16,12 +16,7 @@ use axum::{
 use axum_extra::routing::{HasRoutes, RouterExt};
 use http::{header::HeaderName, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use std::{
-    convert::Infallible,
-    fmt,
-    net::SocketAddr,
-    time::Duration,
-};
+use std::{convert::Infallible, fmt, net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 use tower::{layer::util::Identity, timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
