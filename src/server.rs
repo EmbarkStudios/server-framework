@@ -429,7 +429,9 @@ impl<F, H> Server<F, H> {
         self
     }
 
-    /// Set metric registrer to be called after the metric recorder have been initialized.
+    /// A callback that will be called after the metric recorder is initialized
+    ///
+    /// This can be use to register metrics
     pub fn metric_setup_callback(mut self, callback: Callback) -> Self {
         self.metric_setup_callback = Some(callback);
         self
