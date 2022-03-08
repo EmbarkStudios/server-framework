@@ -27,6 +27,7 @@ pub struct Server<F, H> {
     router: Router<BoxBody>,
     error_handler: F,
     health_check: H,
+    metric_setup_callback: Option<Callback>,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
 }
 
@@ -38,6 +39,7 @@ impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
+            metric_setup_callback: None,
         }
     }
 }
@@ -52,6 +54,7 @@ where
             router,
             health_check,
             metric_buckets,
+            metric_setup_callback: _,
             error_handler: _,
         } = self;
 
@@ -73,6 +76,7 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
+            metric_setup_callback: Default::default(),
         }
     }
 }
@@ -391,6 +395,7 @@ impl<F, H> Server<F, H> {
             error_handler,
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
+            metric_setup_callback: self.metric_setup_callback,
         }
     }
 
@@ -405,6 +410,7 @@ impl<F, H> Server<F, H> {
             error_handler: self.error_handler,
             health_check,
             metric_buckets: self.metric_buckets,
+            metric_setup_callback: self.metric_setup_callback,
         }
     }
 
@@ -420,6 +426,17 @@ impl<F, H> Server<F, H> {
         self.metric_buckets
             .get_or_insert(Default::default())
             .extend(buckets);
+        self
+    }
+
+    /// A callback that will be called after the metric recorder is initialized
+    ///
+    /// This can be use to register metrics
+    pub fn metric_setup_callback<C>(mut self, callback: C) -> Self
+    where
+        C: FnOnce() + Send + 'static,
+    {
+        self.metric_setup_callback = Some(Box::new(callback));
         self
     }
 
@@ -462,6 +479,7 @@ impl<F, H> Server<F, H> {
             tokio::spawn(expose_metrics_and_health(
                 self.config.metrics_health_port,
                 self.metric_buckets.take(),
+                self.metric_setup_callback.take(),
                 self.health_check.clone(),
                 graceful_shutdown,
             ));
@@ -525,10 +543,13 @@ impl<F, H> Server<F, H> {
 /// The type of service that produces the errors `Server.error_handler` will receive
 type FallibleService = Timeout<Route<BoxBody>>;
 
+type Callback = Box<dyn FnOnce() + Send>;
+
 /// Run a second HTTP server that exposes metrics and health checks.
 async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
+    metric_setup_callback: Option<Callback>,
     health_check: H,
     graceful_shutdown: bool,
 ) where
@@ -552,6 +573,10 @@ async fn expose_metrics_and_health<H>(
     let recorder_handle = recorder.handle();
 
     ::metrics::set_boxed_recorder(Box::new(recorder)).expect("failed to set metrics recorder");
+
+    if let Some(cb) = metric_setup_callback {
+        cb();
+    }
 
     let router =
         Router::new()
