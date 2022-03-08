@@ -166,7 +166,7 @@ mod server;
 
 use axum::body::BoxBody;
 
-pub use self::{config::Config, server::MetricRegistrer, server::Server};
+pub use self::{config::Config, server::Server};
 
 #[cfg(feature = "tonic")]
 pub use self::server::router_from_tonic;

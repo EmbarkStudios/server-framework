@@ -21,19 +21,13 @@ use tokio::net::TcpListener;
 use tower::{layer::util::Identity, timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
 
-/// Trait for metric registration.
-pub trait MetricRegistrer {
-    /// Called by server after metric recorder have been initialized.
-    fn register(&self);
-}
-
 /// An HTTP server that runs [`Service`]s with a conventional stack of middleware.
 pub struct Server<F, H> {
     config: Config,
     router: Router<BoxBody>,
     error_handler: F,
     health_check: H,
-    metric_registrer: Option<Box<dyn MetricRegistrer + Send>>,
+    metric_setup_callback: Option<Callback>,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
 }
 
@@ -45,7 +39,7 @@ impl Default for Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: None,
-            metric_registrer: None,
+            metric_setup_callback: None,
         }
     }
 }
@@ -60,7 +54,7 @@ where
             router,
             health_check,
             metric_buckets,
-            metric_registrer: _,
+            metric_setup_callback: _,
             error_handler: _,
         } = self;
 
@@ -82,7 +76,7 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
             error_handler: default_error_handler,
             health_check: NoHealthCheckProvided,
             metric_buckets: Default::default(),
-            metric_registrer: Default::default(),
+            metric_setup_callback: Default::default(),
         }
     }
 }
@@ -401,7 +395,7 @@ impl<F, H> Server<F, H> {
             error_handler,
             health_check: self.health_check,
             metric_buckets: self.metric_buckets,
-            metric_registrer: self.metric_registrer,
+            metric_setup_callback: self.metric_setup_callback,
         }
     }
 
@@ -416,7 +410,7 @@ impl<F, H> Server<F, H> {
             error_handler: self.error_handler,
             health_check,
             metric_buckets: self.metric_buckets,
-            metric_registrer: self.metric_registrer,
+            metric_setup_callback: self.metric_setup_callback,
         }
     }
 
@@ -436,8 +430,8 @@ impl<F, H> Server<F, H> {
     }
 
     /// Set metric registrer to be called after the metric recorder have been initialized.
-    pub fn metric_registrer(mut self, register: Box<dyn MetricRegistrer + Send>) -> Self {
-        self.metric_registrer = Some(register);
+    pub fn metric_setup_callback(mut self, callback: Callback) -> Self {
+        self.metric_setup_callback = Some(callback);
         self
     }
 
@@ -480,7 +474,7 @@ impl<F, H> Server<F, H> {
             tokio::spawn(expose_metrics_and_health(
                 self.config.metrics_health_port,
                 self.metric_buckets.take(),
-                self.metric_registrer.take(),
+                self.metric_setup_callback.take(),
                 self.health_check.clone(),
                 graceful_shutdown,
             ));
@@ -544,11 +538,13 @@ impl<F, H> Server<F, H> {
 /// The type of service that produces the errors `Server.error_handler` will receive
 type FallibleService = Timeout<Route<BoxBody>>;
 
+type Callback = Box<dyn FnOnce() + Send>;
+
 /// Run a second HTTP server that exposes metrics and health checks.
 async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
-    metric_registrer: Option<Box<dyn MetricRegistrer + Send>>,
+    metric_setups_callback: Option<Callback>,
     health_check: H,
     graceful_shutdown: bool,
 ) where
@@ -573,8 +569,8 @@ async fn expose_metrics_and_health<H>(
 
     ::metrics::set_boxed_recorder(Box::new(recorder)).expect("failed to set metrics recorder");
 
-    if let Some(r) = metric_registrer {
-        r.register();
+    if let Some(cb) = metric_setups_callback {
+        cb();
     }
 
     let router =
