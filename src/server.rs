@@ -432,9 +432,9 @@ impl<F, H> Server<F, H> {
     /// A callback that will be called after the metric recorder is initialized
     ///
     /// This can be use to register metrics
-    pub fn metric_setup_callback<F>(mut self, callback: F) -> Self
+    pub fn metric_setup_callback<C>(mut self, callback: C) -> Self
     where
-        F: FnOnce() + Send + 'static,
+        C: FnOnce() + Send + 'static,
     {
         self.metric_setup_callback = Some(Box::new(callback));
         self
