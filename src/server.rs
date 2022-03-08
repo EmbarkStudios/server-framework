@@ -549,7 +549,7 @@ type Callback = Box<dyn FnOnce() + Send>;
 async fn expose_metrics_and_health<H>(
     metrics_health_port: u16,
     metric_buckets: Option<Vec<(Matcher, Vec<f64>)>>,
-    metric_setups_callback: Option<Callback>,
+    metric_setup_callback: Option<Callback>,
     health_check: H,
     graceful_shutdown: bool,
 ) where
@@ -574,7 +574,7 @@ async fn expose_metrics_and_health<H>(
 
     ::metrics::set_boxed_recorder(Box::new(recorder)).expect("failed to set metrics recorder");
 
-    if let Some(cb) = metric_setups_callback {
+    if let Some(cb) = metric_setup_callback {
         cb();
     }
 
