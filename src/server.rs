@@ -20,6 +20,7 @@ use std::{convert::Infallible, fmt, net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 use tower::{layer::util::Identity, timeout::Timeout, Service, ServiceBuilder};
 use tower_http::ServiceBuilderExt;
+use tracing::error;
 
 /// An HTTP server that runs [`Service`]s with a conventional stack of middleware.
 pub struct Server<F, H> {
@@ -559,16 +560,25 @@ async fn expose_metrics_and_health<H>(
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
     ];
 
-    let mut recorder_builder = PrometheusBuilder::new().set_buckets_for_metric(
-        Matcher::Full("http_requests_duration_seconds".to_string()),
-        EXPONENTIAL_SECONDS,
-    );
+    let mut recorder_builder = PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            Matcher::Full("http_requests_duration_seconds".to_string()),
+            EXPONENTIAL_SECONDS,
+        )
+        .expect("Setting exponential seconds bucket failed");
 
     for (matcher, values) in metric_buckets.into_iter().flatten() {
-        recorder_builder = recorder_builder.set_buckets_for_metric(matcher, &values);
+        if values.is_empty() {
+            error!("Can not set empty bucket values for metrics recorder.");
+            continue;
+        }
+
+        recorder_builder = recorder_builder
+            .set_buckets_for_metric(matcher, &values)
+            .unwrap(); // save because no empty buckets.
     }
 
-    let recorder = recorder_builder.build();
+    let recorder = recorder_builder.build_recorder();
 
     let recorder_handle = recorder.handle();
 
