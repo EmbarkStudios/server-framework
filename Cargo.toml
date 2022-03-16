@@ -23,8 +23,8 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 http = "0.2"
 http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
-metrics = "0.17"
-metrics-exporter-prometheus = "0.7"
+metrics = "0.18.1"
+metrics-exporter-prometheus = { version="0.9", default-features = false}
 opentelemetry = { version = "0.17.0" }
 opentelemetry-http = { version = "0.6.0" }
 parking_lot = "0.11"
