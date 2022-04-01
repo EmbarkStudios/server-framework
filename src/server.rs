@@ -84,8 +84,6 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
 impl<F, H> Server<F, H> {
     /// Add routes to the server.
     ///
-    /// This supports anything that implements [`HasRoutes`] such as [`Router`]:
-    ///
     /// ```rust
     /// use server_framework::Server;
     /// use axum::{Router, routing::get};
