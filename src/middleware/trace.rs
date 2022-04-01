@@ -31,7 +31,6 @@ mod tests {
     use assert_json_diff::assert_json_include;
     use axum::{
         body::Body,
-        response::Headers,
         routing::{get, post},
         Router,
     };
@@ -158,10 +157,7 @@ mod tests {
                     )
                     .route(
                         "/package.service/FailUnary",
-                        post(|| async {
-                            let headers = Headers([("grpc-status", "13")]);
-                            (headers, StatusCode::OK)
-                        }),
+                        post(|| async { ([("grpc-status", "13")], StatusCode::OK) }),
                     )
                     .route(
                         "/package.service/FailStream",

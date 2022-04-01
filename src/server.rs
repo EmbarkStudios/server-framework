@@ -13,7 +13,6 @@ use axum::{
     routing::{get, Route},
     Router,
 };
-use axum_extra::routing::{HasRoutes, RouterExt};
 use http::{header::HeaderName, StatusCode};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::{convert::Infallible, fmt, net::SocketAddr, time::Duration};
@@ -84,8 +83,6 @@ impl Server<DefaultErrorHandler, NoHealthCheckProvided> {
 
 impl<F, H> Server<F, H> {
     /// Add routes to the server.
-    ///
-    /// This supports anything that implements [`HasRoutes`] such as [`Router`]:
     ///
     /// ```rust
     /// use server_framework::Server;
@@ -185,9 +182,9 @@ impl<F, H> Server<F, H> {
     /// ```
     pub fn with<T>(mut self, router: T) -> Self
     where
-        T: HasRoutes<BoxBody>,
+        T: Into<Router<BoxBody>>,
     {
-        self.router = self.router.with(router);
+        self.router = self.router.merge(router);
         self
     }
 
@@ -488,7 +485,7 @@ impl<F, H> Server<F, H> {
 
         let make_svc = self
             .into_service()
-            .into_make_service_with_connect_info::<SocketAddr, _>();
+            .into_make_service_with_connect_info::<SocketAddr>();
 
         let server = hyper::Server::from_tcp(listener)?
             .http2_only(http2_only)
