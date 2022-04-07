@@ -1,0 +1,18 @@
+[package]
+name = "server-framework-tonic"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tonic = "0.6"
+server-framework = { version = "0.1", path = ".." }
+tower = "0.4"
+tower-http = "0.2"
+http = "0.2"
+http-body = "0.4"
+bytes = "1"
+
+axum-core = "0.2"
+axum = "0.5"

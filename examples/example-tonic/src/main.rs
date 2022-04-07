@@ -1,6 +1,7 @@
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 use server_framework::{Config, Server};
+use server_framework_tonic::ServerExt;
 
 mod hello_world {
     tonic::include_proto!("helloworld");
