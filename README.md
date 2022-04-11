@@ -6,11 +6,9 @@
 
 <div align="center">
 
-# 🗼 server-framework
+# `🗼 server-framework`
 
-Opinionated framework for running network servers
-
-<!--- FIXME: Update crate, repo and CI workflow names here! Remove any that are not relevant --->
+**Opinionated framework for running network servers**
 
 [![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](https://embark.dev)
 [![Embark](https://img.shields.io/badge/discord-ark-%237289da.svg?logo=discord)](https://discord.gg/dAuKfZS)
