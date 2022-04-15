@@ -25,7 +25,7 @@ pub(crate) fn default_error_handler(
         .unwrap_or("<mising request id>");
 
     if err.is::<tower::timeout::error::Elapsed>() {
-        tracing::error!(
+        tracing::warn!(
             %method,
             %uri,
             request_id = %request_id,
