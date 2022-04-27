@@ -39,7 +39,7 @@ uuid = { version = "0.8", features = ["v4"] }
 tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
 
 [dependencies.tower-http]
-version = "0.2.0"
+version = "0.3.0"
 features = [
     "add-extension",
     "map-request-body",
