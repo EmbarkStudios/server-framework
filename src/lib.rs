@@ -168,9 +168,6 @@ use axum::body::BoxBody;
 
 pub use self::{config::Config, server::Server};
 
-#[cfg(feature = "tonic")]
-pub use self::server::router_from_tonic;
-
 /// Type alias for [`axum::Router`] with [`BoxBody`] as the request body type, which this crate
 /// requires.
 pub type Router<B = BoxBody> = axum::Router<B>;
