@@ -33,7 +33,7 @@ tokio = { version = "1.14", features = ["rt-multi-thread", "signal", "macros"] }
 tower = { version = "0.4", features = ["util", "timeout"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.17"
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4"] }
 
 # optional dependencies
 tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
