@@ -206,7 +206,7 @@ impl<F, H> Server<F, H> {
     /// # }
     /// # impl<T> tower::Service<http::Request<axum::body::BoxBody>> for GreeterServer<T> {
     /// #     type Response = axum::response::Response;
-    /// #     type Error = tonic::codegen::Never;
+    /// #     type Error = std::convert::Infallible;
     /// #     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
     /// #     fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
     /// #         todo!()
@@ -239,7 +239,7 @@ impl<F, H> Server<F, H> {
     #[cfg(feature = "tonic")]
     pub fn with_tonic<S, B>(self, service: S) -> Self
     where
-        S: Service<Request, Response = Response<B>, Error = tonic::codegen::Never>
+        S: Service<Request, Response = Response<B>, Error = Infallible>
             + tonic::transport::NamedService
             + Clone
             + Send
@@ -668,7 +668,7 @@ async fn signal_listener() {
 #[cfg(feature = "tonic")]
 pub fn router_from_tonic<S, B>(service: S) -> Router<BoxBody>
 where
-    S: Service<Request, Response = Response<B>, Error = tonic::codegen::Never>
+    S: Service<Request, Response = Response<B>, Error = Infallible>
         + tonic::transport::NamedService
         + Clone
         + Send
@@ -678,7 +678,7 @@ where
     B::Error: Into<axum::BoxError>,
 {
     let svc = ServiceBuilder::new()
-        .map_err(|err: tonic::codegen::Never| match err {})
+        .map_err(|err: Infallible| match err {})
         .map_response_body(body::boxed)
         .service(service);
     Router::new().route(&format!("/{}/*rest", S::NAME), svc)
