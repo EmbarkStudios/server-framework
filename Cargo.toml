@@ -19,15 +19,17 @@ default = ["tonic"]
 anyhow = "1.0"
 axum = "0.5"
 axum-extra = "0.3"
-futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+futures-util = { version = "0.3", default-features = false, features = [
+    "alloc",
+] }
 http = "0.2"
 http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
 metrics = "0.18.1"
-metrics-exporter-prometheus = { version="0.9", default-features = false}
+metrics-exporter-prometheus = { version = "0.9", default-features = false }
 opentelemetry = { version = "0.17.0" }
 opentelemetry-http = { version = "0.6.0" }
-parking_lot = "0.11"
+parking_lot = "0.12"
 pin-project-lite = "0.2"
 tokio = { version = "1.14", features = ["rt-multi-thread", "signal", "macros"] }
 tower = { version = "0.4", features = ["util", "timeout"] }
@@ -36,7 +38,10 @@ tracing-opentelemetry = "0.17"
 uuid = { version = "1.0", features = ["v4"] }
 
 # optional dependencies
-tonic = { optional = true, version = "0.6", default_features = false, features = ["transport", "codegen"] }
+tonic = { optional = true, version = "0.7", default_features = false, features = [
+    "transport",
+    "codegen",
+] }
 
 [dependencies.tower-http]
 version = "0.3.0"
