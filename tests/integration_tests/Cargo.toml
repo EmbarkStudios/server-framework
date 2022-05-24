@@ -1,5 +1,5 @@
 [package]
-name = "example-tonic"
+name = "integration_test"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -9,8 +9,7 @@ prost = "0.10"
 server-framework = { path = "../../" }
 tokio = { version = "1.14", features = ["full"] }
 tonic = "0.7"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = "0.11.10"
 
 [build-dependencies]
 tonic-build = "0.7"

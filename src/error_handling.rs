@@ -1,5 +1,5 @@
-use axum::{extract::Extension, BoxError};
-use http::{Method, StatusCode, Uri};
+use axum::{extract::Extension, response::IntoResponse, BoxError};
+use http::{header::CONTENT_TYPE, HeaderMap, Method, StatusCode, Uri};
 use std::future::{ready, Ready};
 use tower_http::request_id::RequestId;
 
@@ -7,22 +7,34 @@ use tower_http::request_id::RequestId;
 pub type DefaultErrorHandler = fn(
     Method,
     Uri,
+    HeaderMap,
     Extension<RequestId>,
     Extension<TimeoutSec>,
     BoxError,
-) -> Ready<(StatusCode, String)>;
+) -> Ready<axum::response::Response>;
 
 pub(crate) fn default_error_handler(
     method: Method,
     uri: Uri,
+    headers: HeaderMap,
     Extension(request_id): Extension<RequestId>,
     Extension(TimeoutSec(timeout_sec)): Extension<TimeoutSec>,
     err: BoxError,
-) -> Ready<(StatusCode, String)> {
+) -> Ready<axum::response::Response> {
     let request_id = request_id
         .header_value()
         .to_str()
         .unwrap_or("<mising request id>");
+
+    let is_grpc = headers
+        .get(CONTENT_TYPE)
+        .map(|content_type| {
+            content_type
+                .to_str()
+                .unwrap_or_default()
+                .starts_with("application/grpc")
+        })
+        .unwrap_or_default();
 
     if err.is::<tower::timeout::error::Elapsed>() {
         tracing::warn!(
@@ -34,10 +46,16 @@ pub(crate) fn default_error_handler(
             error_display_chain(&*err)
         );
 
-        ready((
-            StatusCode::REQUEST_TIMEOUT,
-            "Request took too long".to_string(),
-        ))
+        if is_grpc {
+            // Deadline exceeded isn't _completely_ accurate here since the timeout isn't
+            // propagated to downstream services but it's the most accurate status code we can
+            // provide
+            let response = tonic::Status::deadline_exceeded("request timed out");
+            // Grpc have internal status codes which differ from the HTTP status codes
+            ready((StatusCode::OK, response.to_http()).into_response())
+        } else {
+            ready((StatusCode::REQUEST_TIMEOUT, "request timed out").into_response())
+        }
     } else {
         tracing::error!(
             err = %error_display_chain(&*err),
@@ -48,10 +66,14 @@ pub(crate) fn default_error_handler(
             error_display_chain(&*err)
         );
 
-        ready((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Unhandled internal error: {}", err),
-        ))
+        let body = format!("Unhandled internal error: {}", err);
+        if is_grpc {
+            let response = tonic::Status::internal(body);
+            // Grpc have internal status codes which differ from the HTTP status codes
+            ready((StatusCode::OK, response.to_http()).into_response())
+        } else {
+            ready((StatusCode::INTERNAL_SERVER_ERROR, body).into_response())
+        }
     }
 }
 
