@@ -1,0 +1,15 @@
+[package]
+name = "integration_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+prost = "0.10"
+server-framework = { path = "../../" }
+tokio = { version = "1.14", features = ["full"] }
+tonic = "0.7"
+reqwest = "0.11.10"
+
+[build-dependencies]
+tonic-build = "0.7"
