@@ -13,6 +13,41 @@ pub type DefaultErrorHandler = fn(
     BoxError,
 ) -> Ready<axum::response::Response>;
 
+#[cfg(feature = "tonic")]
+fn timeout_response(is_grpc: bool) -> axum::response::Response {
+    if is_grpc {
+        // Deadline exceeded isn't _completely_ accurate here since the timeout isn't
+        // propagated to downstream services but it's the most accurate status code we can
+        // provide
+        let response = tonic::Status::deadline_exceeded("request timed out");
+        // Grpc have internal status codes which differ from the HTTP status codes
+        (StatusCode::OK, response.to_http()).into_response()
+    } else {
+        (StatusCode::REQUEST_TIMEOUT, "request timed out").into_response()
+    }
+}
+
+#[cfg(not(feature = "tonic"))]
+fn timeout_response(_is_grpc: bool) -> axum::response::Response {
+    (StatusCode::REQUEST_TIMEOUT, "request timed out").into_response()
+}
+
+#[cfg(feature = "tonic")]
+fn internal_error_response(is_grpc: bool, body: String) -> axum::response::Response {
+    if is_grpc {
+        let response = tonic::Status::internal(body);
+        // Grpc have internal status codes which differ from the HTTP status codes
+        (StatusCode::OK, response.to_http()).into_response()
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+    }
+}
+
+#[cfg(not(feature = "tonic"))]
+fn internal_error_response(_is_grpc: bool, body: String) -> axum::response::Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+}
+
 pub(crate) fn default_error_handler(
     method: Method,
     uri: Uri,
@@ -46,16 +81,7 @@ pub(crate) fn default_error_handler(
             error_display_chain(&*err)
         );
 
-        if is_grpc {
-            // Deadline exceeded isn't _completely_ accurate here since the timeout isn't
-            // propagated to downstream services but it's the most accurate status code we can
-            // provide
-            let response = tonic::Status::deadline_exceeded("request timed out");
-            // Grpc have internal status codes which differ from the HTTP status codes
-            ready((StatusCode::OK, response.to_http()).into_response())
-        } else {
-            ready((StatusCode::REQUEST_TIMEOUT, "request timed out").into_response())
-        }
+        ready(timeout_response(is_grpc))
     } else {
         tracing::error!(
             err = %error_display_chain(&*err),
@@ -67,13 +93,7 @@ pub(crate) fn default_error_handler(
         );
 
         let body = format!("Unhandled internal error: {}", err);
-        if is_grpc {
-            let response = tonic::Status::internal(body);
-            // Grpc have internal status codes which differ from the HTTP status codes
-            ready((StatusCode::OK, response.to_http()).into_response())
-        } else {
-            ready((StatusCode::INTERNAL_SERVER_ERROR, body).into_response())
-        }
+        ready(internal_error_response(is_grpc, body))
     }
 }
 
