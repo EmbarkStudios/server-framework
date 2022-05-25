@@ -4,6 +4,7 @@ use crate::hello_world::{
     HelloReply, HelloRequest,
 };
 use server_framework::{axum::routing::get, Config, Router, Server};
+use tokio::net::TcpSocket;
 use tonic::{transport::Channel, Status};
 
 #[derive(Clone)]
@@ -32,13 +33,18 @@ async fn grpc_timeout_response() {
     config.timeout_sec = 1;
     config.bind_address = "0.0.0.0:8080".parse().unwrap();
 
+    let socket = TcpSocket::new_v4().unwrap();
+    socket.bind(config.bind_address).unwrap();
+    socket.set_reuseport(true).unwrap();
+    socket.set_reuseaddr(true).unwrap();
+
     let bind_address = config.bind_address;
 
-    let task = tokio::spawn(async {
+    let task = tokio::spawn(async move {
         Server::new(config)
             .with_tonic(GreeterServer::new(MyGreeter))
             .always_live_and_ready()
-            .serve()
+            .serve_with_listener(socket.listen(1024).unwrap())
             .await
             .expect("server failed to start");
     });
@@ -72,6 +78,11 @@ async fn http_timeout_response() {
 
     config.bind_address = "0.0.0.0:8082".parse().unwrap();
 
+    let socket = TcpSocket::new_v4().unwrap();
+    socket.bind(config.bind_address).unwrap();
+    socket.set_reuseport(true).unwrap();
+    socket.set_reuseaddr(true).unwrap();
+
     let bind_address = config.bind_address;
 
     let routes = Router::new().route(
@@ -82,11 +93,11 @@ async fn http_timeout_response() {
         }),
     );
 
-    let task = tokio::spawn(async {
+    let task = tokio::spawn(async move {
         Server::new(config)
             .with(routes)
             .always_live_and_ready()
-            .serve()
+            .serve_with_listener(socket.listen(1024).unwrap())
             .await
             .expect("server failed to start");
     });
