@@ -9,6 +9,7 @@ use axum::{
     body::{self, BoxBody},
     error_handling::{HandleError, HandleErrorLayer},
     extract::Extension,
+    middleware::Next,
     response::Response,
     routing::{get, Route},
     Router,
@@ -518,6 +519,15 @@ impl<F, H> Server<F, H> {
             Either::B(Identity::new())
         };
 
+        let verbose_logging_layer =
+            if std::env::var("ARK_INTERNAL_SERVER_LOGGING").map_or(false, |value| value == "1") {
+                Either::A(axum::middleware::from_fn(
+                    crate::middleware::verbose_logging,
+                ))
+            } else {
+                Either::B(Identity::new())
+            };
+
         self.router
             // these middleware are called for all routes
             .layer(
@@ -534,7 +544,11 @@ impl<F, H> Server<F, H> {
                     .layer(trace::layer())
                     .layer(metrics_layer),
             )
-            .layer(ServiceBuilder::new().set_request_id(request_id_header, MakeRequestUuid))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(verbose_logging_layer)
+                    .set_request_id(request_id_header, MakeRequestUuid)
+            )
     }
 }
 

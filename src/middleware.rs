@@ -1,5 +1,9 @@
-use std::task::{Context, Poll};
-
+use axum::{middleware::Next, response::Response};
+use http::Request;
+use std::{
+    task::{Context, Poll},
+    time::Instant,
+};
 use tower::{Layer, Service};
 
 pub(crate) mod metrics;
@@ -52,4 +56,21 @@ where
             Either::B(svc) => futures_util::future::Either::Right(svc.call(req)),
         }
     }
+}
+
+pub(crate) async fn verbose_logging<B>(req: Request<B>, next: Next<B>) -> Response {
+    let start = Instant::now();
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    tracing::debug!("`{} {}` started", method, uri);
+    let res = next.run(req).await;
+    tracing::debug!(
+        "`{} {}` completed with status {} and headers {:?} in {:?}",
+        method,
+        uri,
+        res.status(),
+        res.headers(),
+        start.elapsed()
+    );
+    res
 }
